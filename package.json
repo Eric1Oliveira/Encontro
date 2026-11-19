@@ -1,0 +1,11 @@
+﻿{
+  "name": "gestao-encontros",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Encontro: gestão de voluntários, equipes, encontros e histórico (HTML, CSS e JavaScript puros; IndexedDB; PWA offline).",
+  "scripts": {
+    "start": "node tools/servidor.mjs",
+    "test": "node tests/e2e.mjs"
+  }
+}

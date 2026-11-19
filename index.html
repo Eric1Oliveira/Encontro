@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Encontro — Voluntários e equipes</title>
+    <meta name="description" content="Gestão de voluntários, equipes, encontros e histórico de serviço. Funciona sem internet; os dados ficam só no aparelho." />
+    <meta name="theme-color" content="#f3f5f1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1311" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Encontro" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+    <link rel="preload" href="assets/fonts/atkinson-next-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/alegreya-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/responsive.css" />
+    <script src="vendor/jszip.min.js" defer></script>
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <div id="boot" class="boot" role="status">
+      <span class="boot__mark" aria-hidden="true"></span>
+      <p class="boot__name">Encontro</p>
+      <p class="boot__status">Abrindo seus dados…</p>
+      <p class="boot__hint">Se esta tela não sair, abra o aplicativo pelo endereço publicado (https://…) ou por um servidor local. Abrir o arquivo index.html direto do computador não funciona — veja o README.</p>
+      <noscript><p class="boot__status">Ative o JavaScript para usar o aplicativo.</p></noscript>
+    </div>
+
+    <div id="app" class="app" hidden>
+      <nav id="sidebar" class="sidebar" aria-label="Menu principal"></nav>
+      <div class="main">
+        <div id="notices" class="notices" aria-live="polite"></div>
+        <main id="view" class="view" tabindex="-1"></main>
+      </div>
+      <nav id="tabbar" class="tabbar" aria-label="Menu rápido"></nav>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+  </body>
+</html>

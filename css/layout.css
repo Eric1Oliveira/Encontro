@@ -1,0 +1,293 @@
+/* Estrutura do aplicativo: abertura, menu lateral, barra inferior, cabeçalho de página e grades. */
+
+/* ---------- Abertura (sem JavaScript: a dica aparece sozinha se o app não carregar) ---------- */
+
+.boot {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+}
+
+.boot__mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: url(../assets/icons/icon.svg) center / cover no-repeat;
+  box-shadow: var(--shadow-2);
+}
+
+.boot__name {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 650;
+}
+
+.boot__status {
+  color: var(--ink-3);
+}
+
+.boot__hint {
+  max-width: 44ch;
+  color: var(--ink-2);
+  opacity: 0;
+  animation: boot-hint 0.4s ease 6s forwards;
+}
+
+@keyframes boot-hint {
+  to {
+    opacity: 1;
+  }
+}
+
+.boot--error .boot__status {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* ---------- Estrutura ---------- */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 22px 14px 18px;
+  border-right: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 10px 22px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.brand__mark {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: url(../assets/icons/icon.svg) center / cover no-repeat;
+}
+
+.brand__text {
+  display: grid;
+  line-height: 1.1;
+}
+
+.brand__name {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brand__tag {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
+
+.nav-group--end {
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.nav-label {
+  padding: 18px 12px 6px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  text-align: left;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-link:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.nav-link.is-active {
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: var(--shadow-1), inset 3px 0 0 var(--primary);
+}
+
+.main {
+  min-width: 0;
+}
+
+.notices {
+  display: grid;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 14px var(--gutter) 0;
+}
+
+.notices:empty {
+  display: none;
+}
+
+.view {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 26px var(--gutter) calc(110px + var(--tabbar-h));
+  outline: none;
+}
+
+.page {
+  display: grid;
+  gap: 22px;
+  max-width: 1180px;
+}
+
+.page--wide {
+  max-width: none;
+}
+
+.page--form {
+  max-width: 920px;
+}
+
+.tabbar {
+  display: none;
+}
+
+/* ---------- Cabeçalho da página ---------- */
+
+.page-head {
+  display: grid;
+  gap: 10px;
+}
+
+.page-head__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-self: start;
+  margin-left: -4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-3);
+  font-size: 0.92rem;
+  text-decoration: none;
+}
+
+.page-head__back:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+.page-head__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.page-head__text {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 420px;
+}
+
+.page-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- Grades ---------- */
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  align-items: start;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.person-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 14px;
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.event-list {
+  display: grid;
+  gap: 10px;
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
