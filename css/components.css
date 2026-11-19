@@ -1299,6 +1299,222 @@ th[aria-sort='descending'] .th-sort__icon {
   opacity: 0.7;
 }
 
+/* Cartão rápido: um crachá de encontro (fita no topo, furo do cordão, picote antes dos detalhes). */
+.modal--cracha {
+  width: min(400px, calc(100vw - 24px));
+  overflow: hidden;
+}
+
+.modal--cracha .modal__head {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  padding: 10px;
+  border: 0;
+}
+
+.modal--cracha .modal__title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.modal--cracha .modal__x {
+  margin: 0;
+  color: var(--primary-ink);
+}
+
+.modal--cracha .modal__x:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.16);
+  color: var(--primary-ink);
+}
+
+.modal--cracha .modal__body {
+  padding: 0;
+}
+
+.modal--cracha .modal__foot {
+  border-top: 0;
+  padding-top: 6px;
+}
+
+.modal--cracha .modal__foot .btn {
+  flex: 1;
+  justify-content: center;
+}
+
+.cracha {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  padding-bottom: 8px;
+}
+
+.cracha__band {
+  position: relative;
+  justify-self: stretch;
+  height: 84px;
+  background: var(--primary);
+}
+
+.cracha__slot {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  width: 54px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  transform: translateX(-50%);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+.cracha:focus {
+  outline: none;
+}
+
+.cracha__photo {
+  position: relative;
+  z-index: 1;
+  margin-top: -60px;
+  padding: 5px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.cracha__photo .avatar {
+  --avatar-size: 116px;
+}
+
+.cracha__name {
+  margin: 10px 20px 0;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 650;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.cracha__age {
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-size: 0.95rem;
+}
+
+.cracha__phone {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.cracha__number {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 1.3rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cracha__number:hover {
+  color: var(--primary);
+}
+
+.cracha__call {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.cracha__facts {
+  justify-self: stretch;
+  display: grid;
+  gap: 12px;
+  margin: 18px 20px 0;
+  padding-top: 16px;
+  border-top: 1px dashed var(--line-strong);
+  text-align: left;
+}
+
+.cracha__facts > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.cracha__facts dt {
+  padding-top: 3px;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.cracha__facts dd {
+  margin: 0;
+}
+
+.cracha__served {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 0.92rem;
+}
+
+/* Encontros anteriores informados na ficha */
+.past-list {
+  display: grid;
+}
+
+.past-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.past-row + .past-row {
+  border-top: 1px solid var(--line);
+}
+
+.past-row__year {
+  color: var(--ink-3);
+}
+
+.past-row__main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.past-row__name {
+  font-weight: 650;
+}
+
+.past-row__actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.tile__note {
+  color: var(--ink-3);
+  font-size: 0.78rem;
+}
+
+.timeline__title .badge {
+  margin-left: 4px;
+  font-family: var(--font-body);
+  vertical-align: 2px;
+}
+
 .person-card__name {
   margin-top: 4px;
   font-family: var(--font-display);

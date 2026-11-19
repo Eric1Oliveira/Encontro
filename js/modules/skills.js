@@ -24,6 +24,7 @@ export async function loadCatalog() {
     characteristics,
     profile: characteristics.filter((c) => c.group === 'perfil'),
     availability: characteristics.filter((c) => c.group === 'disponibilidade'),
+    pastorals: characteristics.filter((c) => c.group === 'pastoral'),
     skillsById: new Map(skills.map((s) => [s.id, s])),
     categoriesById: new Map(categories.map((c) => [c.id, c])),
     characteristicsById: new Map(characteristics.map((c) => [c.id, c])),
@@ -94,7 +95,7 @@ export async function optionUsage() {
     u[key]++;
     usage.set(id, u);
   };
-  for (const p of people) for (const id of [...p.skillIds, ...p.characteristicIds, ...p.availabilityIds]) bump(id, 'people');
+  for (const p of people) for (const id of [...p.skillIds, ...p.characteristicIds, ...p.availabilityIds, ...(p.pastoralIds ?? [])]) bump(id, 'people');
   for (const r of teamRequirements) bump(r.refId, 'teams');
   return usage;
 }
@@ -108,7 +109,7 @@ export async function deleteOption(store, id) {
     } else {
       const people = await req(s.people.getAll());
       const field = store === 'skills' ? 'skillIds' : null;
-      const used = people.some((p) => (field ? p[field].includes(id) : p.characteristicIds.includes(id) || p.availabilityIds.includes(id)));
+      const used = people.some((p) => (field ? p[field].includes(id) : p.characteristicIds.includes(id) || p.availabilityIds.includes(id) || (p.pastoralIds ?? []).includes(id)));
       const required = (await req(s.teamRequirements.getAll())).some((r) => r.refId === id);
       if (used || required) throw new AppError('in_use', 'Esta opção está em uso em fichas ou equipes. Desative-a: ela some das novas escolhas e continua onde já foi marcada.');
     }
@@ -292,7 +293,7 @@ export async function renderCatalog(view) {
       CHARACTERISTIC_GROUPS[group].label,
       { lead: CHARACTERISTIC_GROUPS[group].hint, className: 'catalog-card catalog-card--wide' },
       items.length ? h('ul', { class: 'option-list' }, items.map((c) => optionRow('characteristics', c))) : h('p', { class: 'muted' }, 'Nenhuma opção ainda.'),
-      inlineAdd('characteristics', { group }, group === 'perfil' ? 'Nova característica (ex.: Paciente)' : 'Nova opção (ex.: Domingo à tarde)'),
+      inlineAdd('characteristics', { group }, { perfil: 'Nova característica (ex.: Paciente)', disponibilidade: 'Nova opção (ex.: Domingo à tarde)', pastoral: 'Nova pastoral (ex.: Pastoral Carcerária)' }[group]),
     );
   };
 
@@ -317,6 +318,7 @@ export async function renderCatalog(view) {
           { value: 'habilidades', label: 'Habilidades' },
           { value: 'perfil', label: 'Perfil pessoal' },
           { value: 'disponibilidade', label: 'Disponibilidade' },
+          { value: 'pastoral', label: 'Pastorais' },
         ],
         onChange: (v) => ((tab = v), paint()),
       }),

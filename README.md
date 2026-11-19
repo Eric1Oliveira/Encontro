@@ -46,12 +46,26 @@ Cada aparelho (e cada navegador) tem o próprio banco. Eles **não** se sincroni
 O backup leva pessoas, fotos, habilidades, características, equipes, coordenação, encontros,
 distribuições, histórico e configurações. O PIN e o bloqueio automático ficam só no aparelho.
 
+## Lista de pessoas em planilha
+
+Em *Pessoas*, o botão **Baixar planilha** gera um arquivo `.xlsx`, que abre no Excel, no Google Planilhas e no
+celular. Ele traz nome, idade, nascimento, telefone, e-mail, Instagram, pastorais, habilidades, encontros
+servidos, equipes, coordenações, disponibilidade e situação. As fotos não vão. A planilha respeita os
+filtros da tela: filtre, por exemplo, por uma pastoral ou habilidade e baixe só essas pessoas.
+
+Clicar numa pessoa da lista abre o **cartão** dela (foto, nome, idade, telefone com Ligar/WhatsApp,
+pastorais e onde já serviu). *Ver ficha completa* abre a ficha para editar.
+
 ## Regras que o sistema garante
 
 - A pessoa é cadastrada uma vez e reaproveitada em todos os encontros.
 - Equipes são permanentes; cada encontro tem a própria composição.
 - O histórico é **calculado** das participações confirmadas, nunca digitado. Duas equipes no mesmo
   encontro = 2 participações e 1 encontro servido. Encontros em planejamento não contam.
+- A única exceção são os **encontros anteriores** (de antes do aplicativo, ou que não foram cadastrados
+  aqui): eles são informados na aba *Histórico* da ficha, com nome, ano, equipe e função. Entram na contagem
+  de experiência e no assistente, sempre marcados como *informados na ficha*. O mesmo encontro (nome + ano)
+  em duas equipes conta como 1 encontro.
 - Mesma pessoa duas vezes na mesma equipe do mesmo encontro é recusado (também por índice único no banco).
 - Reabrir um encontro concluído não mexe no histórico até as correções serem confirmadas; descartar
   volta exatamente ao registrado.
@@ -80,10 +94,11 @@ tools/      servidor.mjs (servidor local)
 npm test
 ```
 
-Abre o Edge (ou Chrome) sem janela num perfil temporário e percorre 34 etapas: lista de arquivos do
+Abre o Edge (ou Chrome) sem janela num perfil temporário e percorre 37 etapas: lista de arquivos do
 service worker, cadastros pela tela,
 fotos, habilidades ilimitadas, coordenadores, distribuição, duplicidades, conclusão, histórico,
-reabertura e correção, relatórios/CSV, backup com e sem senha, arquivos inválidos, senha errada,
+reabertura e correção, relatórios/CSV, idade, pastorais, encontros anteriores, cartão da pessoa,
+planilha .xlsx, atualização dos dados da versão 1.0, backup com e sem senha, arquivos inválidos, senha errada,
 falha no meio da restauração, falta de espaço (simulada), mesclagem, restauração em banco vazio,
 PIN, uso sem internet, atualização controlada, telas de celular/tablet/computador e persistência
 depois de fechar o navegador. Defina `SHOTS=<pasta>` para salvar capturas de tela.
@@ -91,7 +106,9 @@ depois de fechar o navegador. Defina `SHOTS=<pasta>` para salvar capturas de tel
 ## Publicar uma atualização
 
 1. Altere os arquivos.
-2. Em `sw.js`, troque `VERSION` (ex.: `encontro-1.0.1`) e inclua em `ASSETS` qualquer arquivo novo.
+2. Em `sw.js`, troque `VERSION` (ex.: `encontro-1.1.1`) e inclua em `ASSETS` qualquer arquivo novo.
+   Se o formato dos registros mudar, suba `DATA_VERSION` em `js/schema.js` e escreva a migração em
+   `DATA_MIGRATIONS`: ela atualiza o banco do aparelho e os backups antigos ao serem abertos.
 3. Publique. Quem estiver usando vê o aviso *“Há uma nova versão”* e atualiza quando quiser; se houver
    formulário aberto ou backup em andamento, o aplicativo avisa antes.
 

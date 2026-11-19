@@ -10,41 +10,83 @@ import { segmented } from '../components/forms.js';
 import { toast, toastError } from '../components/toast.js';
 import { confirmDialog } from '../components/modal.js';
 import { navigate, setDirty, trackOperation } from '../router.js';
+import { normalize } from '../validation.js';
 
 export const historyId = (eventId, teamId, personId) => `${eventId}:${teamId}:${personId}`;
 
 // ---------- Cálculos ----------
 
+/** Cor das contas de encontros anteriores sem equipe cadastrada. */
+export const PAST_COLOR = '#8A948E';
+
 /**
- * Agrupa as participações confirmadas por pessoa.
- * Duas equipes no mesmo encontro = 2 participações, mas 1 encontro servido.
- * @returns {Map<string, { events: Set<string>, participations: number, coordinations: number, byTeam: Map<string, {count: number, coordinations: number, name: string, color: string, icon: string}>, records: any[] }>}
+ * Encontros anteriores informados na ficha (`pastServices`), no mesmo formato do histórico.
+ * Ficam marcados com `manual: true`. O mesmo encontro (nome + ano) em duas equipes conta 1 encontro.
  */
-export function buildStats(history) {
+export function pastRecords(people) {
+  const out = [];
+  for (const p of people) {
+    for (const s of p.pastServices ?? []) {
+      const teamId = s.teamId || (s.teamName ? `anterior:${normalize(s.teamName)}` : null);
+      out.push({
+        id: `anterior:${s.id}`,
+        manual: true,
+        entryId: s.id,
+        personId: p.id,
+        personName: p.name,
+        eventId: `anterior:${p.id}:${normalize(s.eventName)}:${s.year ?? ''}`,
+        eventName: s.eventName,
+        eventStart: s.year ? String(s.year) : '',
+        eventEnd: '',
+        year: s.year ?? null,
+        teamId,
+        teamName: s.teamName || '',
+        teamColor: s.teamColor || PAST_COLOR,
+        teamIcon: s.teamIcon || 'teams',
+        role: s.role,
+        status: 'confirmada',
+      });
+    }
+  }
+  return out;
+}
+
+/** Quando foi: período do encontro ou, nos informados à mão, só o ano. */
+export const recordWhen = (r) => (r.manual ? (r.year ? String(r.year) : 'Ano não informado') : fmtRange(r.eventStart, r.eventEnd));
+
+/**
+ * Agrupa as participações confirmadas por pessoa, somando os encontros anteriores informados nas fichas de `people`.
+ * Duas equipes no mesmo encontro = 2 participações, mas 1 encontro servido.
+ * @returns {Map<string, { events: Set<string>, participations: number, coordinations: number, manualEvents: Set<string>, byTeam: Map<string, {count: number, coordinations: number, name: string, color: string, icon: string}>, records: any[] }>}
+ */
+export function buildStats(history, people = []) {
   const byPerson = new Map();
-  for (const record of history) {
+  for (const record of [...history, ...pastRecords(people)]) {
     if (record.status !== 'confirmada') continue;
     let stats = byPerson.get(record.personId);
     if (!stats) byPerson.set(record.personId, (stats = emptyStats()));
     stats.events.add(record.eventId);
+    if (record.manual) stats.manualEvents.add(record.eventId);
     stats.participations++;
     if (record.role === 'coordenador') stats.coordinations++;
-    const team = stats.byTeam.get(record.teamId) ?? { count: 0, coordinations: 0, name: record.teamName, color: record.teamColor, icon: record.teamIcon };
-    team.count++;
-    if (record.role === 'coordenador') team.coordinations++;
-    stats.byTeam.set(record.teamId, team);
+    if (record.teamId) {
+      const team = stats.byTeam.get(record.teamId) ?? { count: 0, coordinations: 0, name: record.teamName, color: record.teamColor, icon: record.teamIcon };
+      team.count++;
+      if (record.role === 'coordenador') team.coordinations++;
+      stats.byTeam.set(record.teamId, team);
+    }
     stats.records.push(record);
   }
   return byPerson;
 }
 
-export const emptyStats = () => ({ events: new Set(), participations: 0, coordinations: 0, byTeam: new Map(), records: [] });
+export const emptyStats = () => ({ events: new Set(), manualEvents: new Set(), participations: 0, coordinations: 0, byTeam: new Map(), records: [] });
 
 /** Linha do tempo de uma pessoa: um item por encontro, com as equipes daquele encontro. */
 export function personTimeline(records) {
   const byEvent = new Map();
   for (const r of records) {
-    const item = byEvent.get(r.eventId) ?? { eventId: r.eventId, eventName: r.eventName, eventStart: r.eventStart, eventEnd: r.eventEnd, entries: [] };
+    const item = byEvent.get(r.eventId) ?? { eventId: r.eventId, eventName: r.eventName, eventStart: r.eventStart, eventEnd: r.eventEnd, manual: Boolean(r.manual), year: r.year, entries: [] };
     item.entries.push(r);
     byEvent.set(r.eventId, item);
   }

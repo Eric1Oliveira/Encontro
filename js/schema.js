@@ -1,12 +1,12 @@
 // Estrutura do banco local (IndexedDB), versões, rótulos fixos e valores iniciais.
 import { normalize } from './validation.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 export const DB_NAME = 'gestao-encontros';
 /** Versão estrutural do IndexedDB (lojas e índices). */
 export const DB_VERSION = 1;
 /** Versão do formato dos registros — vai dentro dos backups. */
-export const DATA_VERSION = 1;
+export const DATA_VERSION = 2;
 
 const uniq = (keyPath) => ({ keyPath, unique: true });
 
@@ -55,7 +55,17 @@ export function upgradeDatabase(db, oldVersion, newVersion) {
 
 /** Migrações de registros vindos de backups de versões anteriores do formato. */
 const DATA_MIGRATIONS = {
-  // 2: (stores) => { ... }
+  /** 1.1: data de nascimento, pastorais e encontros anteriores informados na ficha. */
+  2(stores) {
+    for (const p of stores.people ?? []) {
+      p.birthDate ??= '';
+      p.pastoralIds ??= [];
+      p.pastServices ??= [];
+    }
+    if (!stores.characteristics) return;
+    const known = new Set(stores.characteristics.map((c) => c.id));
+    for (const c of defaultRecords().characteristics) if (c.group === 'pastoral' && !known.has(c.id)) stores.characteristics.push(c);
+  },
 };
 
 export function migrateData(stores, fromVersion) {
@@ -78,6 +88,7 @@ export const areaLabel = (id) => AREAS.find((a) => a.id === id)?.label ?? 'Outra
 export const CHARACTERISTIC_GROUPS = {
   perfil: { label: 'Perfil pessoal', hint: 'Jeito de ser da pessoa. Não é competência.' },
   disponibilidade: { label: 'Disponibilidade', hint: 'Dias e formatos em que a pessoa costuma poder servir.' },
+  pastoral: { label: 'Pastorais', hint: 'Pastorais e movimentos da paróquia em que a pessoa serve ou já serviu.' },
 };
 
 export const EVENT_STATUS = {
@@ -130,6 +141,7 @@ const DEFAULT_SKILLS = [
 ];
 const DEFAULT_PROFILE = ['Comunicativo', 'Tímido', 'Organizado', 'Proativo', 'Criativo', 'Liderança', 'Paciente', 'Acolhedor'];
 const DEFAULT_AVAILABILITY = ['Sexta-feira', 'Sábado', 'Domingo', 'Pode pernoitar', 'Apenas meio período', 'Reuniões de preparação'];
+const DEFAULT_PASTORALS = ['Catequese', 'Liturgia', 'Ministério de Música', 'Pastoral da Juventude', 'Pastoral Familiar', 'Pastoral do Batismo', 'Pastoral da Criança', 'Pastoral do Dízimo', 'Pastoral da Saúde', 'Pastoral da Acolhida', 'Coroinhas e acólitos', 'Ministros da Eucaristia', 'Renovação Carismática', 'Legião de Maria'];
 
 /**
  * Identificadores fixos: dois aparelhos instalados separadamente geram os mesmos
@@ -146,6 +158,7 @@ export function defaultRecords(now = new Date().toISOString()) {
   const characteristics = [
     ...DEFAULT_PROFILE.map((name, i) => ({ id: `chr-${slug(name)}`, group: 'perfil', name, nameKey: normalize(name), active: true, order: i, createdAt: now, updatedAt: now })),
     ...DEFAULT_AVAILABILITY.map((name, i) => ({ id: `avl-${slug(name)}`, group: 'disponibilidade', name, nameKey: normalize(name), active: true, order: i, createdAt: now, updatedAt: now })),
+    ...DEFAULT_PASTORALS.map((name, i) => ({ id: `pst-${slug(name)}`, group: 'pastoral', name, nameKey: normalize(name), active: true, order: i, createdAt: now, updatedAt: now })),
   ];
   return { categories, skills, characteristics };
 }

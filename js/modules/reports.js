@@ -6,7 +6,7 @@ import { icon } from '../components/icons.js';
 import { dataTable } from '../components/tables.js';
 import { selectBox, filterBar, withAll } from '../components/filters.js';
 import { navigate } from '../router.js';
-import { buildStats, emptyStats } from './history.js';
+import { buildStats, emptyStats, pastRecords, recordWhen } from './history.js';
 import { loadCatalog } from './skills.js';
 
 /** CSV com ; e BOM: abre com acentos corretos no Excel em português. */
@@ -16,6 +16,41 @@ export function toCSV(columns, rows) {
     return /[;"]/.test(text) || /^[=+\-@]/.test(text) ? `"${text.replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"` : text;
   };
   return '﻿' + [columns.map((c) => cell(c.label)).join(';'), ...rows.map((r) => columns.map((c) => cell(c.text(r))).join(';'))].join('\r\n');
+}
+
+/**
+ * Planilha .xlsx (Excel, Google Planilhas, celular) gerada no aparelho com o JSZip local.
+ * Cabeçalho em negrito, fixo no topo e com filtro. `columns`: { label, text, width?, number? }.
+ * @returns {Promise<Blob>}
+ */
+export async function toXLSX(columns, rows, sheetName = 'Planilha') {
+  if (!globalThis.JSZip) throw new Error('O componente de planilha não carregou. Recarregue a página e tente de novo.');
+  const xml = (text) => String(text ?? '').replace(/[^\t\n\r\x20-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const col = (i) => (i >= 26 ? col(Math.floor(i / 26) - 1) : '') + String.fromCharCode(65 + (i % 26));
+  const cell = (ref, value, style) => {
+    const s = style ? ` s="${style}"` : '';
+    if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"${s}><v>${value}</v></c>`;
+    const text = xml(value);
+    return text ? `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${text}</t></is></c>` : '';
+  };
+  const lines = [columns.map((c, i) => cell(`${col(i)}1`, c.label, 1)).join('')];
+  const value = (c, row) => {
+    const v = c.text(row);
+    return c.number && v !== '' && v != null ? Number(v) : v;
+  };
+  rows.forEach((row, r) => lines.push(columns.map((c, i) => cell(`${col(i)}${r + 2}`, value(c, row))).join('')));
+  const last = `${col(columns.length - 1)}${rows.length + 1}`;
+  const name = xml(sheetName.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31));
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width ?? 18}" customWidth="1"/>`).join('')}</cols><sheetData>${lines.map((cells, i) => `<row r="${i + 1}">${cells}</row>`).join('')}</sheetData><autoFilter ref="A1:${last}"/></worksheet>`;
+  const zip = new globalThis.JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+  zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${name}" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">'${name.replace(/'/g, "''")}'!$A$1:$${col(columns.length - 1)}$${rows.length + 1}</definedName></definedNames></workbook>`);
+  zip.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
+  zip.file('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF1D5A45"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>');
+  zip.file('xl/worksheets/sheet1.xml', sheet);
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
 }
 
 const by = (key) => (a, b) => String(key(a) ?? '').localeCompare(String(key(b) ?? ''), 'pt-BR', { numeric: true });
@@ -119,7 +154,7 @@ const REPORTS = [
     filters: ['team'],
     build(ctx, f) {
       const rows = [
-        ...ctx.history.filter((r) => r.role === 'coordenador' && r.status === 'confirmada' && (!f.team || r.teamId === f.team)).map((r) => ({ source: 'Encontro', teamName: r.teamName, team: { name: r.teamName, color: r.teamColor, icon: r.teamIcon }, person: ctx.nameOf(r), period: `${r.eventName} (${fmtRange(r.eventStart, r.eventEnd)})`, sort: r.eventStart })),
+        ...ctx.history.filter((r) => r.role === 'coordenador' && r.status === 'confirmada' && (!f.team || r.teamId === f.team)).map((r) => ({ source: r.manual ? 'Informado na ficha' : 'Encontro', teamName: r.teamName || 'Equipe não informada', team: { name: r.teamName || 'Equipe não informada', color: r.teamColor, icon: r.teamIcon }, person: ctx.nameOf(r), period: `${r.eventName} (${recordWhen(r)})`, sort: r.eventStart })),
         ...ctx.teamList.filter((t) => !f.team || t.id === f.team).flatMap((t) => t.coordinators.map((c) => ({ source: 'Cadastro da equipe', teamName: t.name, team: t, person: ctx.people.get(c.personId)?.name ?? 'Ficha removida', period: `${fmtDate(c.since)} – ${c.until ? fmtDate(c.until) : 'atual'}`, sort: c.since }))),
       ].sort((a, b) => by((r) => r.teamName)(a, b) || String(b.sort).localeCompare(String(a.sort)));
       return {
@@ -185,16 +220,16 @@ const REPORTS = [
 function eventRows() {
   return [
     { key: 'event', label: 'Encontro', primary: true, text: (r) => r.eventName, sortValue: (r) => r.eventStart },
-    { key: 'date', label: 'Data', text: (r) => fmtRange(r.eventStart, r.eventEnd), sortValue: (r) => r.eventStart },
-    { key: 'team', label: 'Equipe', text: (r) => r.teamName, render: (r) => teamChip({ name: r.teamName, color: r.teamColor, icon: r.teamIcon }, { small: true }), sortValue: (r) => r.teamName },
+    { key: 'date', label: 'Data', text: (r) => recordWhen(r), sortValue: (r) => r.eventStart },
+    { key: 'team', label: 'Equipe', text: (r) => r.teamName || 'Não informada', render: (r) => (r.teamName ? teamChip({ name: r.teamName, color: r.teamColor, icon: r.teamIcon }, { small: true }) : h('span', { class: 'muted' }, 'Não informada')), sortValue: (r) => r.teamName },
     { key: 'role', label: 'Função', text: (r) => ROLES[r.role], render: (r) => (r.role === 'coordenador' ? badge(ROLES.coordenador, 'gold') : ROLES.integrante), sortValue: (r) => r.role },
-    { key: 'status', label: 'Situação', text: (r) => PARTICIPATION_STATUS[r.status], sortValue: (r) => r.status },
+    { key: 'status', label: 'Situação', text: (r) => (r.manual ? 'Serviu (informado na ficha)' : PARTICIPATION_STATUS[r.status]), sortValue: (r) => r.status },
   ];
 }
 
 async function loadContext() {
   const [stores, catalog] = await Promise.all([readStores(['people', 'teams', 'events', 'eventTeams', 'allocations', 'participationHistory']), loadCatalog()]);
-  const stats = buildStats(stores.participationHistory);
+  const stats = buildStats(stores.participationHistory, stores.people);
   const people = new Map(stores.people.map((p) => [p.id, p]));
   return {
     catalog,
@@ -208,7 +243,8 @@ async function loadContext() {
     eventList: stores.events,
     eventTeams: stores.eventTeams,
     allocations: stores.allocations,
-    history: stores.participationHistory,
+    /** Histórico dos encontros + encontros anteriores informados nas fichas (`manual: true`). */
+    history: [...stores.participationHistory, ...pastRecords(stores.people)],
     nameOf: (r) => people.get(r.personId)?.name ?? r.personName,
   };
 }

@@ -1,8 +1,8 @@
 // Pessoas: cadastro permanente, foto, classificações, preferências e histórico (somente leitura).
 import { transaction, req, readStores, uid, nowISO, AppError } from '../database.js';
 import { AVAILABILITY_STATUS, EVENT_STATUS, ROLES, areaLabel } from '../schema.js';
-import { validatePerson, normalize, clean, formatPhone, normalizeInstagram, digits } from '../validation.js';
-import { h, button, pageHeader, emptyState, avatar, badge, teamChip, plural, fmtRange, fmtDate, forgetPhoto, photoUrl, section } from '../components/ui.js';
+import { validatePerson, validatePastService, ageOf, normalize, clean, formatPhone, normalizeInstagram, digits } from '../validation.js';
+import { h, button, pageHeader, emptyState, avatar, badge, teamChip, plural, fmtRange, fmtDate, forgetPhoto, photoUrl, section, todayISO, downloadFile, stamp } from '../components/ui.js';
 import { icon } from '../components/icons.js';
 import { dataTable } from '../components/tables.js';
 import { searchBox, selectBox, collapsibleFilters, withAll, matchesQuery } from '../components/filters.js';
@@ -11,14 +11,34 @@ import { openModal, confirmDialog, choiceDialog } from '../components/modal.js';
 import { toast, toastError } from '../components/toast.js';
 import { navigate, refresh } from '../router.js';
 import { requestPersistence } from '../notifications.js';
-import { buildStats, emptyStats, personTimeline } from './history.js';
+import { buildStats, emptyStats, personTimeline, pastRecords, PAST_COLOR } from './history.js';
 import { loadCatalog, quickAddOption } from './skills.js';
+import { toXLSX } from './reports.js';
 
 // ---------- Dados ----------
 
 export function blankPerson() {
-  return { id: null, name: '', phone: '', email: '', instagram: '', notes: '', photoId: null, skillIds: [], characteristicIds: [], preferredTeamIds: [], avoidTeamIds: [], availabilityIds: [], availabilityStatus: '', preferenceNotes: '', status: 'ativo' };
+  return { id: null, name: '', birthDate: '', phone: '', email: '', instagram: '', notes: '', photoId: null, skillIds: [], characteristicIds: [], pastoralIds: [], preferredTeamIds: [], avoidTeamIds: [], availabilityIds: [], availabilityStatus: '', preferenceNotes: '', pastServices: [], status: 'ativo' };
 }
+
+/** Encontros anteriores informados à mão: textos limpos, ano numérico, retrato da equipe. */
+function cleanPastServices(list) {
+  return (list ?? []).map((s) => ({
+    id: s.id || uid(),
+    eventName: clean(s.eventName),
+    year: s.year == null || s.year === '' ? null : Number(s.year),
+    teamId: s.teamId || null,
+    teamName: clean(s.teamName),
+    teamColor: s.teamColor || null,
+    teamIcon: s.teamIcon || null,
+    role: s.role,
+  }));
+}
+
+export const ageText = (birthDate) => {
+  const age = ageOf(birthDate);
+  return age == null ? '' : plural(age, 'ano', 'anos');
+};
 
 /**
  * Salva a ficha e a foto na mesma transação.
@@ -27,6 +47,8 @@ export function blankPerson() {
  */
 export async function savePerson(input, photo) {
   const data = { ...input, instagram: normalizeInstagram(input.instagram), email: clean(input.email).toLowerCase(), name: clean(input.name) };
+  if ('birthDate' in input) data.birthDate = clean(input.birthDate);
+  if ('pastServices' in input) data.pastServices = cleanPastServices(input.pastServices);
   const errors = validatePerson(data);
   if (Object.keys(errors).length) throw Object.assign(new AppError('invalid', 'Confira os campos destacados.'), { fields: errors });
   const now = nowISO();
@@ -141,10 +163,92 @@ export function beads(records, max = 12) {
   );
 }
 
-function skillChips(person, catalog, max = 3) {
-  const names = person.skillIds.map((id) => catalog.skillsById.get(id)?.name).filter(Boolean);
+const optionList = (ids, byId) => (ids ?? []).map((id) => byId.get(id)?.name).filter(Boolean);
+
+function optionTags(ids, byId, max = 3) {
+  const names = optionList(ids, byId);
   if (!names.length) return h('span', { class: 'muted' }, '—');
   return h('span', { class: 'tags' }, names.slice(0, max).map((n) => h('span', { class: 'tag' }, n)), names.length > max && h('span', { class: 'tag tag--more' }, `+${names.length - max}`));
+}
+
+const skillChips = (person, catalog, max = 3) => optionTags(person.skillIds, catalog.skillsById, max);
+
+/** Equipes em que serviu, da mais frequente para a menos: "Música (2), Cozinha". */
+const teamsServed = (st) => [...st.byTeam.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'pt-BR')).map((t) => (t.count > 1 ? `${t.name} (${t.count})` : t.name)).join(', ');
+
+/** Clique simples (sem Ctrl/⌘/Shift): abre o cartão; com modificador, o link segue normal (nova aba). */
+const plainClick = (event) => event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
+
+/**
+ * Cartão rápido da pessoa, no formato de crachá: foto, nome, idade, telefone, pastorais e onde serviu.
+ * @param {any} person
+ * @param {{ stats: ReturnType<typeof emptyStats>, catalog: any }} ctx
+ */
+export function openPersonCard(person, { stats, catalog }) {
+  const st = stats ?? emptyStats();
+  const phone = digits(person.phone);
+  const pastorals = optionList(person.pastoralIds, catalog.characteristicsById);
+  const age = ageText(person.birthDate);
+  const served = st.events.size
+    ? h('div', { class: 'cracha__served' }, beads(st.records, 16), h('span', null, `${plural(st.events.size, 'encontro', 'encontros')}${st.byTeam.size ? ` · ${teamsServed(st)}` : ''}`))
+    : h('span', { class: 'muted' }, 'Ainda não serviu');
+  const body = h(
+    'article',
+    { class: 'cracha', dataset: { role: 'person-card' } },
+    h('div', { class: 'cracha__band' }, h('span', { class: 'cracha__slot', 'aria-hidden': 'true' })),
+    h('div', { class: 'cracha__photo' }, avatar(person, 'xl')),
+    h('p', { class: 'cracha__name' }, person.name),
+    h('p', { class: 'cracha__age' }, age || 'Idade não informada', person.status === 'arquivado' ? ' · ficha arquivada' : ''),
+    person.phone
+      ? h(
+          'div',
+          { class: 'cracha__phone' },
+          h('a', { class: 'cracha__number', href: `tel:+55${phone}` }, person.phone),
+          h('div', { class: 'cracha__call' }, h('a', { class: 'btn btn--secondary btn--sm', href: `tel:+55${phone}` }, icon('phone', { size: 16 }), h('span', null, 'Ligar')), h('a', { class: 'btn btn--secondary btn--sm', href: `https://wa.me/55${phone}`, target: '_blank', rel: 'noopener' }, icon('message', { size: 16 }), h('span', null, 'WhatsApp'))),
+        )
+      : h('p', { class: 'cracha__phone muted' }, 'Sem telefone cadastrado'),
+    h(
+      'dl',
+      { class: 'cracha__facts' },
+      h('div', null, h('dt', null, 'Pastorais'), h('dd', null, pastorals.length ? h('span', { class: 'tags' }, pastorals.map((n) => h('span', { class: 'tag' }, n))) : h('span', { class: 'muted' }, 'Nenhuma informada'))),
+      h('div', null, h('dt', null, 'Serviu em'), h('dd', null, served)),
+    ),
+  );
+  openModal({
+    title: person.name,
+    size: 'sm',
+    className: 'modal--cracha',
+    body,
+    actions: [{ label: 'Ver ficha completa', variant: 'primary', icon: 'chevron-right', id: 'open-person', onClick: () => navigate(`/pessoas/${person.id}`) }],
+  });
+  // Foco no próprio cartão (leitores de tela leem o conteúdo; Tab leva aos botões).
+  body.tabIndex = -1;
+  body.focus({ preventScroll: true });
+}
+
+/** Planilha .xlsx com os dados principais (sem fotos), na ordem e com os filtros da lista. */
+async function exportPeople(rows, { statOf, catalog, filtered }) {
+  const columns = [
+    { label: 'Nome', width: 32, text: (p) => p.name },
+    { label: 'Idade', width: 8, number: true, text: (p) => ageOf(p.birthDate) ?? '' },
+    { label: 'Nascimento', width: 13, text: (p) => (p.birthDate ? fmtDate(p.birthDate) : '') },
+    { label: 'Telefone', width: 17, text: (p) => p.phone },
+    { label: 'E-mail', width: 28, text: (p) => p.email },
+    { label: 'Instagram', width: 18, text: (p) => p.instagram },
+    { label: 'Pastorais', width: 34, text: (p) => optionList(p.pastoralIds, catalog.characteristicsById).join(', ') },
+    { label: 'Habilidades', width: 34, text: (p) => optionList(p.skillIds, catalog.skillsById).join(', ') },
+    { label: 'Encontros servidos', width: 18, number: true, text: (p) => statOf(p).events.size },
+    { label: 'Equipes em que serviu', width: 34, text: (p) => teamsServed(statOf(p)) },
+    { label: 'Coordenações', width: 14, number: true, text: (p) => statOf(p).coordinations },
+    { label: 'Disponibilidade', width: 22, text: (p) => (p.availabilityStatus ? AVAILABILITY_STATUS[p.availabilityStatus] : '') },
+    { label: 'Situação', width: 11, text: (p) => (p.status === 'arquivado' ? 'Arquivada' : 'Ativa') },
+  ];
+  try {
+    downloadFile(await toXLSX(columns, rows, 'Pessoas'), `pessoas-${stamp()}.xlsx`);
+    toast(`Planilha com ${plural(rows.length, 'pessoa', 'pessoas')} baixada.${filtered ? ' Só quem aparece com os filtros atuais.' : ''}`);
+  } catch (error) {
+    toastError(error);
+  }
 }
 
 /**
@@ -214,7 +318,7 @@ export async function pickPeople({ title, lead, multiple = false, selected = [],
 
 // ---------- Lista ----------
 
-const listState = { query: '', skill: '', trait: '', team: '', availability: '', status: 'ativo', experience: '', sort: 'name', view: readView() };
+const listState = { query: '', skill: '', trait: '', pastoral: '', team: '', availability: '', status: 'ativo', experience: '', sort: 'name', view: readView() };
 
 function readView() {
   try {
@@ -233,14 +337,20 @@ function saveView(value) {
 
 export async function renderPeople(view) {
   const [{ people, teams, participationHistory }, catalog] = await Promise.all([readStores(['people', 'teams', 'participationHistory']), loadCatalog()]);
-  const stats = buildStats(participationHistory);
+  const stats = buildStats(participationHistory, people);
   const statOf = (p) => stats.get(p.id) ?? emptyStats();
   const results = h('div', { class: 'stack' });
   const count = h('p', { class: 'result-count', role: 'status' });
+  const showCard = (p) => openPersonCard(p, { stats: statOf(p), catalog });
+  const cardOnClick = (p) => (event) => {
+    if (!plainClick(event)) return;
+    event.preventDefault();
+    showCard(p);
+  };
 
-  const activeFilters = () => ['query', 'skill', 'trait', 'team', 'availability', 'experience'].some((k) => listState[k]) || listState.status !== 'ativo';
+  const activeFilters = () => ['query', 'skill', 'trait', 'pastoral', 'team', 'availability', 'experience'].some((k) => listState[k]) || listState.status !== 'ativo';
   const clearFilters = () => {
-    Object.assign(listState, { query: '', skill: '', trait: '', team: '', availability: '', experience: '', status: 'ativo' });
+    Object.assign(listState, { query: '', skill: '', trait: '', pastoral: '', team: '', availability: '', experience: '', status: 'ativo' });
     renderPeople(view);
   };
 
@@ -251,12 +361,13 @@ export async function renderPeople(view) {
         if (listState.status && p.status !== listState.status) return false;
         if (listState.skill && !p.skillIds.includes(listState.skill)) return false;
         if (listState.trait && !p.characteristicIds.includes(listState.trait) && !p.availabilityIds.includes(listState.trait)) return false;
+        if (listState.pastoral && !(p.pastoralIds ?? []).includes(listState.pastoral)) return false;
         if (listState.team && !st.byTeam.has(listState.team)) return false;
         if (listState.availability && (listState.availability === 'none' ? p.availabilityStatus : p.availabilityStatus !== listState.availability)) return false;
         if (listState.experience === 'never' && st.events.size) return false;
         if (listState.experience === 'served' && !st.events.size) return false;
         if (listState.experience === 'coordinated' && !st.coordinations) return false;
-        return matchesQuery(`${p.name} ${p.phone} ${digits(p.phone)} ${p.email} ${p.instagram} ${p.notes}`, listState.query);
+        return matchesQuery(`${p.name} ${p.phone} ${digits(p.phone)} ${p.email} ${p.instagram} ${p.notes} ${optionList(p.pastoralIds, catalog.characteristicsById).join(' ')}`, listState.query);
       })
       .sort((a, b) => {
         if (listState.sort === 'experience') return statOf(b).events.size - statOf(a).events.size || statOf(b).participations - statOf(a).participations || a.name.localeCompare(b.name, 'pt-BR');
@@ -286,10 +397,10 @@ export async function renderPeople(view) {
             const st = statOf(p);
             return h(
               'a',
-              { class: ['person-card', p.status === 'arquivado' && 'is-archived'], href: `#/pessoas/${p.id}` },
+              { class: ['person-card', p.status === 'arquivado' && 'is-archived'], href: `#/pessoas/${p.id}`, onclick: cardOnClick(p) },
               avatar(p, 'lg'),
               h('span', { class: 'person-card__name' }, p.name),
-              h('span', { class: 'person-card__contact' }, [p.phone, p.instagram].filter(Boolean).join(' · ') || 'Sem contato'),
+              h('span', { class: 'person-card__contact' }, [ageText(p.birthDate), p.phone].filter(Boolean).join(' · ') || 'Sem contato'),
               skillChips(p, catalog),
               h('span', { class: 'person-card__stats' }, st.events.size ? beads(st.records, 10) : null, h('span', null, st.events.size ? `${plural(st.events.size, 'encontro', 'encontros')} · ${plural(st.byTeam.size, 'equipe', 'equipes')}` : 'Ainda não serviu')),
               p.status === 'arquivado' && badge('Arquivada', 'muted'),
@@ -302,9 +413,11 @@ export async function renderPeople(view) {
     results.replaceChildren(
       dataTable({
         rows,
-        onRowClick: (p) => navigate(`/pessoas/${p.id}`),
+        onRowClick: showCard,
         columns: [
-          { key: 'name', label: 'Pessoa', primary: true, render: (p) => h('span', { class: 'cell-person' }, avatar(p, 'sm'), h('span', { class: 'cell-stack' }, h('a', { href: `#/pessoas/${p.id}`, class: 'cell-link' }, p.name), h('small', null, [p.phone, p.instagram].filter(Boolean).join(' · ') || 'Sem contato'))) },
+          { key: 'name', label: 'Pessoa', primary: true, render: (p) => h('span', { class: 'cell-person' }, avatar(p, 'sm'), h('span', { class: 'cell-stack' }, h('a', { href: `#/pessoas/${p.id}`, class: 'cell-link', onclick: cardOnClick(p) }, p.name), h('small', null, [p.phone, p.instagram].filter(Boolean).join(' · ') || 'Sem contato'))) },
+          { key: 'age', label: 'Idade', align: 'end', render: (p) => (ageOf(p.birthDate) == null ? h('span', { class: 'muted cell-empty' }, '—') : h('span', { class: 'num' }, ageOf(p.birthDate))) },
+          { key: 'pastorals', label: 'Pastorais', render: (p) => (optionList(p.pastoralIds, catalog.characteristicsById).length ? optionTags(p.pastoralIds, catalog.characteristicsById, 2) : h('span', { class: 'muted cell-empty' }, '—')) },
           { key: 'skills', label: 'Habilidades', hideSm: true, render: (p) => skillChips(p, catalog) },
           { key: 'events', label: 'Encontros', align: 'end', render: (p) => h('span', { class: 'num' }, statOf(p).events.size) },
           { key: 'teams', label: 'Equipes em que serviu', hideSm: true, render: (p) => (statOf(p).records.length ? beads(statOf(p).records, 8) : h('span', { class: 'muted' }, '—')) },
@@ -320,7 +433,8 @@ export async function renderPeople(view) {
     paint();
   };
   const skillOptions = catalog.skills.filter((s) => s.active || people.some((p) => p.skillIds.includes(s.id))).map((s) => ({ value: s.id, label: s.name, group: catalog.categoriesById.get(s.categoryId)?.name ?? 'Outras' }));
-  const traitOptions = catalog.characteristics.filter((c) => c.active).map((c) => ({ value: c.id, label: c.name, group: c.group === 'perfil' ? 'Perfil pessoal' : 'Disponibilidade' }));
+  const traitOptions = [...catalog.profile, ...catalog.availability].filter((c) => c.active).map((c) => ({ value: c.id, label: c.name, group: c.group === 'perfil' ? 'Perfil pessoal' : 'Disponibilidade' }));
+  const pastoralOptions = catalog.pastorals.filter((c) => c.active || people.some((p) => (p.pastoralIds ?? []).includes(c.id))).map((c) => ({ value: c.id, label: c.name }));
   const viewToggle = segmented({
     name: 'people-view',
     label: 'Visualização',
@@ -345,13 +459,17 @@ export async function renderPeople(view) {
         eyebrow: 'Cadastro permanente',
         title: 'Pessoas',
         lead: people.length ? `${plural(people.filter((p) => p.status === 'ativo').length, 'pessoa ativa', 'pessoas ativas')} · ${plural(served, 'já serviu', 'já serviram')} em algum encontro` : 'Cadastre as pessoas uma vez; elas ficam disponíveis para todos os encontros.',
-        actions: h('a', { class: 'btn btn--primary', href: '#/pessoas/nova' }, icon('plus', { size: 18 }), h('span', null, 'Nova pessoa')),
+        actions: [
+          people.length ? button('Baixar planilha', { icon: 'download', title: 'Planilha (.xlsx) com os dados principais de quem está na lista, sem fotos', onClick: () => exportPeople(filtered(), { statOf, catalog, filtered: activeFilters() }), attrs: { 'data-action': 'export-people' } }) : null,
+          h('a', { class: 'btn btn--primary', href: '#/pessoas/nova' }, icon('plus', { size: 18 }), h('span', null, 'Nova pessoa')),
+        ],
       }),
       people.length
         ? [
             collapsibleFilters(
-              searchBox({ value: listState.query, placeholder: 'Buscar por nome, telefone, e-mail ou Instagram', onInput: set('query') }),
+              searchBox({ value: listState.query, placeholder: 'Buscar por nome, telefone, e-mail ou pastoral', onInput: set('query') }),
               selectBox({ label: 'Habilidade', value: listState.skill, options: withAll('Todas', skillOptions), onChange: set('skill') }),
+              selectBox({ label: 'Pastoral', value: listState.pastoral, options: withAll('Todas', pastoralOptions), onChange: set('pastoral') }),
               selectBox({ label: 'Perfil', value: listState.trait, options: withAll('Todos', traitOptions), onChange: set('trait') }),
               selectBox({ label: 'Serviu em', value: listState.team, options: withAll('Qualquer equipe', teams.map((t) => ({ value: t.id, label: t.name })).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))), onChange: set('team') }),
               selectBox({ label: 'Experiência', value: listState.experience, options: withAll('Todas', [{ value: 'never', label: 'Nunca serviu' }, { value: 'served', label: 'Já serviu' }, { value: 'coordinated', label: 'Já coordenou' }]), onChange: set('experience') }),
@@ -376,7 +494,86 @@ const TABS = [
   { id: 'preferencias', label: 'Preferências' },
   { id: 'historico', label: 'Histórico' },
 ];
-const FIELD_TAB = { name: 'dados', phone: 'dados', email: 'dados', instagram: 'dados', avoidTeamIds: 'preferencias' };
+const FIELD_TAB = { name: 'dados', birthDate: 'dados', phone: 'dados', email: 'dados', instagram: 'dados', avoidTeamIds: 'preferencias', pastServices: 'historico' };
+const ROLE_OPTIONS = [
+  { value: 'integrante', label: 'Integrante' },
+  { value: 'coordenador', label: 'Coordenação' },
+];
+const OTHER_TEAM = '__outra';
+
+/**
+ * Inclui ou edita um encontro anterior (antes do aplicativo ou não cadastrado aqui).
+ * @returns {Promise<any|null>} o encontro anterior pronto para a ficha
+ */
+function pastServiceDialog(entry, { teams, siblings, suggestions }) {
+  return new Promise((resolve) => {
+    let result = null;
+    const listId = `sugestoes-encontro-${Date.now()}`;
+    const knownTeam = entry?.teamId && teams.find((t) => t.id === entry.teamId);
+    const teamValue = knownTeam ? knownTeam.id : entry?.teamName ? OTHER_TEAM : '';
+    const otherField = field({ label: 'Nome da equipe', name: 'teamName', value: knownTeam ? '' : entry?.teamName, placeholder: 'Ex.: Teatro', attrs: { maxlength: '60' } });
+    otherField.hidden = teamValue !== OTHER_TEAM;
+    const teamField = field({
+      label: 'Equipe',
+      name: 'team',
+      type: 'select',
+      value: teamValue,
+      options: [{ value: '', label: 'Não lembro / não informar' }, ...teams.map((t) => ({ value: t.id, label: t.status === 'ativa' ? t.name : `${t.name} (inativa)` })), { value: OTHER_TEAM, label: 'Outra equipe (escrever o nome)…' }],
+    });
+    teamField.querySelector('select').addEventListener('change', (event) => {
+      otherField.hidden = event.target.value !== OTHER_TEAM;
+      if (!otherField.hidden) otherField.querySelector('input').focus();
+    });
+    const form = h(
+      'form',
+      { class: 'form form-grid', novalidate: true, onsubmit: (e) => (e.preventDefault(), modal.dialog.querySelector('[data-action="save-past"]')?.click()) },
+      field({ label: 'Encontro', name: 'eventName', value: entry?.eventName, required: true, wide: true, placeholder: 'Ex.: EJC 2019, Encontro de Casais', hint: 'Escreva como o encontro é conhecido. Os já usados aparecem como sugestão.', attrs: { maxlength: '80', list: listId, autocomplete: 'off' } }),
+      h('datalist', { id: listId }, suggestions.map((name) => h('option', { value: name }))),
+      field({ label: 'Ano', name: 'year', type: 'number', value: entry?.year ?? '', placeholder: String(new Date().getFullYear() - 1), hint: 'Se não lembrar, deixe em branco.', attrs: { inputmode: 'numeric', min: '1950', max: String(new Date().getFullYear()), step: '1' } }),
+      teamField,
+      otherField,
+      h('div', { class: 'field field--wide', dataset: { field: 'role' } }, h('span', { class: 'field__label' }, 'Função'), segmented({ name: 'role', label: 'Função', value: entry?.role ?? 'integrante', options: ROLE_OPTIONS }), h('p', { class: 'field__error', hidden: true })),
+    );
+    const modal = openModal({
+      title: entry ? 'Editar encontro anterior' : 'Encontro anterior',
+      lead: 'Para encontros que não estão cadastrados aqui. Os encontros concluídos no aplicativo entram no histórico sozinhos.',
+      size: 'md',
+      body: form,
+      onClose: () => resolve(result),
+      actions: [
+        { label: 'Cancelar', variant: 'ghost' },
+        {
+          label: entry ? 'Salvar alteração' : 'Incluir na ficha',
+          variant: 'primary',
+          id: 'save-past',
+          onClick: () => {
+            const v = readForm(form);
+            const typed = clean(v.teamName);
+            const team = v.team === OTHER_TEAM ? teams.find((t) => t.nameKey === normalize(typed)) : teams.find((t) => t.id === v.team);
+            const year = clean(v.year);
+            const candidate = {
+              id: entry?.id ?? uid(),
+              eventName: clean(v.eventName),
+              year: year ? Number(year) : null,
+              teamId: team?.id ?? null,
+              teamName: team ? team.name : v.team === OTHER_TEAM ? typed : '',
+              teamColor: team?.color ?? null,
+              teamIcon: team?.icon ?? null,
+              role: v.role || 'integrante',
+            };
+            const errors = validatePastService(candidate, siblings);
+            if (v.team === OTHER_TEAM && !typed) errors.teamName = 'Escreva o nome da equipe ou escolha "Não lembro".';
+            if (Object.keys(errors).length) {
+              showErrors(form, errors);
+              return false;
+            }
+            result = candidate;
+          },
+        },
+      ],
+    });
+  });
+}
 
 export async function renderPerson(view, { id }, query) {
   const isNew = id === 'nova';
@@ -388,7 +585,11 @@ export async function renderPerson(view, { id }, query) {
   }
   const person = existing ? structuredClone(existing) : blankPerson();
   const records = stores.participationHistory.filter((r) => r.personId === person.id);
-  const stats = buildStats(records).get(person.id) ?? emptyStats();
+  /** Encontros anteriores em edição: entram na ficha ao salvar. */
+  let pastDraft = structuredClone(person.pastServices ?? []);
+  const draftPerson = () => ({ ...person, pastServices: pastDraft });
+  const currentStats = () => buildStats(records, [draftPerson()]).get(person.id) ?? emptyStats();
+  const stats = currentStats();
   let tab = TABS.some((t) => t.id === query.get('aba')) ? query.get('aba') : 'dados';
   /** @type {{ blob: Blob } | 'remove' | undefined} */
   let photoChange;
@@ -422,14 +623,31 @@ export async function renderPerson(view, { id }, query) {
   });
   const removePhotoBtn = button('Remover foto', { variant: 'ghost', small: true, icon: 'trash', onClick: () => ((photoChange = 'remove'), form.dispatchEvent(new Event('change')), paintPhoto()) });
 
+  const ageHint = (value) => ageText(value) || 'A idade é calculada sozinha a partir da data.';
+  const birthField = field({ label: 'Data de nascimento', name: 'birthDate', type: 'date', value: person.birthDate, hint: ageHint(person.birthDate), attrs: { max: todayISO(), min: '1900-01-01', autocomplete: 'bday' } });
+  birthField.querySelector('input').addEventListener('input', (event) => {
+    birthField.querySelector('.field__hint').textContent = ageHint(event.target.value);
+  });
+
+  const pastoralGroup = h('div', { class: 'field--wide' });
+  const paintPastorals = (selected = currentList('pastoralIds')) => {
+    const owned = new Set(selected);
+    const options = catalog.pastorals.filter((c) => c.active || owned.has(c.id));
+    pastoralGroup.replaceChildren(
+      h('fieldset', { class: 'choice-group' }, h('legend', { class: 'choice-group__title' }, 'Pastorais'), h('p', { class: 'field__hint' }, 'Pastorais e movimentos em que serve ou já serviu.'), options.length ? chipGroup({ name: 'pastoralIds', label: 'Pastorais', options: options.map((c) => ({ id: c.id, label: c.name, muted: !c.active })), selected: [...owned] }) : h('p', { class: 'muted' }, 'Nenhuma pastoral cadastrada.'), button('Nova pastoral', { variant: 'quiet', small: true, icon: 'plus', onClick: () => addOption('characteristics', { group: 'pastoral', title: 'Nova pastoral' }, 'pastoralIds') })),
+    );
+  };
+
   const panelDados = h(
     'div',
     { class: 'form-grid' },
     h('div', { class: 'photo-field field--wide' }, photoBox, h('div', { class: 'photo-field__actions' }, button(person.photoId ? 'Trocar foto' : 'Escolher foto', { icon: 'camera', onClick: () => fileInput.click() }), removePhotoBtn, h('p', { class: 'field__hint' }, 'A foto é reduzida e guardada só neste aparelho.')), fileInput),
     field({ label: 'Nome completo', name: 'name', value: person.name, required: true, wide: true, attrs: { autocomplete: 'name', maxlength: '120' } }),
     field({ label: 'Telefone', name: 'phone', type: 'tel', value: person.phone, placeholder: '(11) 98765-4321', attrs: { autocomplete: 'tel', inputmode: 'tel' } }),
+    birthField,
     field({ label: 'E-mail', name: 'email', type: 'email', value: person.email, attrs: { autocomplete: 'email', inputmode: 'email' } }),
     field({ label: 'Instagram', name: 'instagram', value: person.instagram, placeholder: '@usuario', attrs: { autocapitalize: 'off' } }),
+    pastoralGroup,
     field({ label: 'Observações', name: 'notes', type: 'textarea', value: person.notes, wide: true, rows: 3 }),
   );
 
@@ -479,47 +697,110 @@ export async function renderPerson(view, { id }, query) {
     field({ label: 'Observações sobre preferências', name: 'preferenceNotes', type: 'textarea', value: person.preferenceNotes, wide: true, rows: 3 }),
   );
 
-  // ---- Aba 5: histórico (calculado, somente leitura) ----
+  // ---- Aba 5: histórico (calculado dos encontros concluídos + encontros anteriores informados) ----
   const openAllocations = stores.allocations.filter((a) => a.personId === person.id).map((a) => ({ a, event: stores.events.find((e) => e.id === a.eventId), team: stores.teams.find((t) => t.id === a.teamId) })).filter((x) => x.event && ['planejamento', 'em_andamento', 'reaberto'].includes(x.event.status));
   const absences = records.filter((r) => r.status === 'ausente').length;
-  const teamRows = [...stats.byTeam.entries()].map(([teamId, t]) => ({ teamId, ...t })).sort((a, b) => b.count - a.count);
-  const panelHistory = h(
-    'div',
-    { class: 'stack' },
-    h('div', { class: 'tiles' }, tile('Encontros servidos', stats.events.size), tile('Participações em equipes', stats.participations), tile('Coordenações', stats.coordinations), tile('Ausências', absences)),
-    stats.records.length ? h('div', { class: 'beads-line' }, beads(stats.records, 40), h('span', { class: 'muted' }, 'Cada conta é uma participação, na cor da equipe. Contorno dourado = coordenação.')) : null,
-    openAllocations.length ? section('Distribuições em aberto', { lead: 'Ainda não contam no histórico: o encontro não foi concluído.' }, h('ul', { class: 'plain-list' }, openAllocations.map(({ a, event, team }) => h('li', null, h('a', { href: `#/encontros/${event.id}` }, event.name), ' · ', team ? teamChip(team, { small: true }) : 'Equipe', ' · ', ROLES[a.role], ' · ', badge(EVENT_STATUS[event.status].label, EVENT_STATUS[event.status].tone))))) : null,
-    stats.records.length
-      ? [
-          section('Equipes em que trabalhou', null, dataTable({ rows: teamRows, sortKey: 'count', sortDir: 'desc', columns: [{ key: 'name', label: 'Equipe', primary: true, sortValue: (t) => t.name, render: (t) => teamChip(t) }, { key: 'count', label: 'Participações', align: 'end', defaultDir: 'desc', sortValue: (t) => t.count, render: (t) => h('span', { class: 'num' }, t.count) }, { key: 'coordinations', label: 'Coordenou', align: 'end', defaultDir: 'desc', sortValue: (t) => t.coordinations, render: (t) => (t.coordinations ? badge(plural(t.coordinations, 'vez', 'vezes'), 'gold') : h('span', { class: 'muted' }, '—')) }] })),
-          section(
-            'Linha do tempo',
-            null,
-            h(
-              'ol',
-              { class: 'timeline' },
-              personTimeline(records).map((item) =>
-                h(
-                  'li',
-                  { class: 'timeline__item' },
-                  h('span', { class: 'timeline__date' }, fmtRange(item.eventStart, item.eventEnd)),
-                  h('div', { class: 'timeline__body' }, h('a', { class: 'timeline__title', href: `#/encontros/${item.eventId}` }, item.eventName), h('div', { class: 'tags' }, item.entries.map((r) => h('span', { class: ['timeline__entry', r.status === 'ausente' && 'is-absent'] }, teamChip({ name: r.teamName, color: r.teamColor, icon: r.teamIcon }, { small: true }), r.role === 'coordenador' ? badge('Coordenação', 'gold') : null, r.status === 'ausente' ? badge('Não compareceu', 'muted') : null)))),
-                ),
+  const teamsForPast = [...stores.teams].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const eventSuggestions = [...new Set([...stores.events.map((e) => e.name), ...stores.people.flatMap((p) => (p.pastServices ?? []).map((s) => s.eventName))])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const historyPanel = h('div', { class: 'tab-panel', id: 'aba-historico', role: 'tabpanel', dataset: { tab: 'historico' } });
+  const tabCount = h('span', { class: 'tabs__count' });
+
+  async function editPast(entry) {
+    const result = await pastServiceDialog(entry, { teams: teamsForPast, siblings: pastDraft, suggestions: eventSuggestions });
+    if (!result) return;
+    pastDraft = entry ? pastDraft.map((s) => (s.id === entry.id ? result : s)) : [...pastDraft, result];
+    pastChanged();
+  }
+
+  function removePast(entry) {
+    pastDraft = pastDraft.filter((s) => s.id !== entry.id);
+    pastChanged();
+  }
+
+  /** A lista mudou: marca a ficha como alterada e mostra o botão de salvar também nesta aba. */
+  function pastChanged() {
+    form.dispatchEvent(new Event('change'));
+    saveBar.hidden = false;
+    paintHistory();
+  }
+
+  function pastSection() {
+    const sorted = [...pastDraft].sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || a.eventName.localeCompare(b.eventName, 'pt-BR'));
+    return section(
+      'Encontros anteriores',
+      { lead: 'Encontros em que serviu antes do aplicativo ou que não estão cadastrados aqui. Contam na experiência, marcados como informados.', actions: button('Incluir encontro', { small: true, icon: 'plus', onClick: () => editPast(null), attrs: { 'data-action': 'add-past' } }) },
+      sorted.length
+        ? h(
+            'ul',
+            { class: 'past-list' },
+            sorted.map((s) =>
+              h(
+                'li',
+                { class: 'past-row' },
+                h('span', { class: 'past-row__year num' }, s.year ?? '—'),
+                h('span', { class: 'past-row__main' }, h('span', { class: 'past-row__name' }, s.eventName), h('span', { class: 'tags' }, s.teamName ? teamChip({ name: s.teamName, color: s.teamColor ?? PAST_COLOR, icon: s.teamIcon ?? 'teams' }, { small: true }) : h('span', { class: 'muted' }, 'Equipe não informada'), s.role === 'coordenador' ? badge('Coordenação', 'gold') : null)),
+                h('span', { class: 'past-row__actions' }, button('', { variant: 'ghost', small: true, icon: 'edit', title: `Editar ${s.eventName}`, onClick: () => editPast(s) }), button('', { variant: 'ghost', small: true, icon: 'trash', title: `Remover ${s.eventName}`, onClick: () => removePast(s) })),
               ),
             ),
-          ),
-        ]
-      : emptyState({ icon: 'history', title: isNew ? 'O histórico aparece depois do primeiro encontro' : 'Ainda não serviu em nenhum encontro concluído', text: 'Os números são calculados das participações confirmadas — nunca digitados.' }),
-  );
+          )
+        : h('p', { class: 'muted' }, 'Nenhum encontro anterior informado.'),
+    );
+  }
+
+  function paintHistory() {
+    const st = currentStats();
+    const all = [...records, ...pastRecords([draftPerson()])];
+    const teamRows = [...st.byTeam.entries()].map(([teamId, t]) => ({ teamId, ...t })).sort((a, b) => b.count - a.count);
+    tabCount.textContent = String(st.events.size);
+    tabCount.hidden = !st.events.size;
+    historyPanel.replaceChildren(
+      h(
+        'div',
+        { class: 'stack' },
+        h('div', { class: 'tiles' }, tile('Encontros servidos', st.events.size, st.manualEvents.size ? `${plural(st.manualEvents.size, 'informado', 'informados')} na ficha` : null), tile('Participações em equipes', st.participations), tile('Coordenações', st.coordinations), tile('Ausências', absences)),
+        st.records.length ? h('div', { class: 'beads-line' }, beads(st.records, 40), h('span', { class: 'muted' }, 'Cada conta é uma participação, na cor da equipe. Contorno dourado = coordenação.')) : null,
+        openAllocations.length ? section('Distribuições em aberto', { lead: 'Ainda não contam no histórico: o encontro não foi concluído.' }, h('ul', { class: 'plain-list' }, openAllocations.map(({ a, event, team }) => h('li', null, h('a', { href: `#/encontros/${event.id}` }, event.name), ' · ', team ? teamChip(team, { small: true }) : 'Equipe', ' · ', ROLES[a.role], ' · ', badge(EVENT_STATUS[event.status].label, EVENT_STATUS[event.status].tone))))) : null,
+        pastSection(),
+        all.length
+          ? [
+              teamRows.length ? section('Equipes em que trabalhou', null, dataTable({ rows: teamRows, sortKey: 'count', sortDir: 'desc', columns: [{ key: 'name', label: 'Equipe', primary: true, sortValue: (t) => t.name, render: (t) => teamChip(t) }, { key: 'count', label: 'Participações', align: 'end', defaultDir: 'desc', sortValue: (t) => t.count, render: (t) => h('span', { class: 'num' }, t.count) }, { key: 'coordinations', label: 'Coordenou', align: 'end', defaultDir: 'desc', sortValue: (t) => t.coordinations, render: (t) => (t.coordinations ? badge(plural(t.coordinations, 'vez', 'vezes'), 'gold') : h('span', { class: 'muted' }, '—')) }] })) : null,
+              section(
+                'Linha do tempo',
+                null,
+                h(
+                  'ol',
+                  { class: 'timeline' },
+                  personTimeline(all).map((item) =>
+                    h(
+                      'li',
+                      { class: ['timeline__item', item.manual && 'is-manual'] },
+                      h('span', { class: 'timeline__date' }, item.manual ? (item.year ? String(item.year) : 'Ano não informado') : fmtRange(item.eventStart, item.eventEnd)),
+                      h(
+                        'div',
+                        { class: 'timeline__body' },
+                        item.manual ? h('span', { class: 'timeline__title' }, item.eventName, ' ', badge('Informado na ficha', 'muted')) : h('a', { class: 'timeline__title', href: `#/encontros/${item.eventId}` }, item.eventName),
+                        h('div', { class: 'tags' }, item.entries.map((r) => h('span', { class: ['timeline__entry', r.status === 'ausente' && 'is-absent'] }, r.teamName ? teamChip({ name: r.teamName, color: r.teamColor, icon: r.teamIcon }, { small: true }) : h('span', { class: 'muted' }, 'Equipe não informada'), r.role === 'coordenador' ? badge('Coordenação', 'gold') : null, r.status === 'ausente' ? badge('Não compareceu', 'muted') : null))),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ]
+          : emptyState({ icon: 'history', title: isNew ? 'O histórico aparece depois do primeiro encontro' : 'Ainda não serviu em nenhum encontro concluído', text: 'Os números vêm dos encontros concluídos aqui e dos encontros anteriores informados acima.' }),
+      ),
+    );
+  }
 
   // ---- Montagem ----
-  const panels = { dados: panelDados, habilidades: skillGroups, perfil: profileGroup, preferencias: panelPreferences, historico: panelHistory };
-  const form = h('form', { class: 'person-form', novalidate: true, onsubmit: (e) => (e.preventDefault(), save()) }, Object.entries(panels).filter(([k]) => k !== 'historico').map(([k, node]) => h('div', { class: 'tab-panel', id: `aba-${k}`, role: 'tabpanel', dataset: { tab: k } }, node)));
-  const historyPanel = h('div', { class: 'tab-panel', id: 'aba-historico', role: 'tabpanel', dataset: { tab: 'historico' } }, panelHistory);
+  const panels = { dados: panelDados, habilidades: skillGroups, perfil: profileGroup, preferencias: panelPreferences };
+  const form = h('form', { class: 'person-form', novalidate: true, onsubmit: (e) => (e.preventDefault(), save()) }, Object.entries(panels).map(([k, node]) => h('div', { class: 'tab-panel', id: `aba-${k}`, role: 'tabpanel', dataset: { tab: k } }, node)));
+  /** Esta ficha tem alteração ainda não salva (vale para esta tela, não para a anterior). */
+  let changed = false;
+  for (const type of ['input', 'change']) form.addEventListener(type, () => (changed = true));
   const tabList = h(
     'div',
     { class: 'tabs', role: 'tablist', 'aria-label': 'Seções da ficha' },
-    TABS.map((t) => h('button', { type: 'button', role: 'tab', class: 'tabs__tab', id: `tab-${t.id}`, 'aria-controls': `aba-${t.id}`, dataset: { tab: t.id }, onclick: () => showTab(t.id) }, t.label, t.id === 'historico' && stats.events.size ? h('span', { class: 'tabs__count' }, stats.events.size) : null)),
+    TABS.map((t) => h('button', { type: 'button', role: 'tab', class: 'tabs__tab', id: `tab-${t.id}`, 'aria-controls': `aba-${t.id}`, dataset: { tab: t.id }, onclick: () => showTab(t.id) }, t.label, t.id === 'historico' ? tabCount : null)),
   );
   const saveBar = h('div', { class: 'savebar' }, h('div', { class: 'savebar__inner' }, h('p', { class: 'savebar__text' }, isNew ? 'Preencha pelo menos o nome. O resto pode ser completado depois.' : 'Alterações ficam guardadas só depois de salvar.'), button('Cancelar', { variant: 'ghost', onClick: () => navigate('/pessoas') }), button(isNew ? 'Cadastrar pessoa' : 'Salvar ficha', { variant: 'primary', icon: 'check', type: 'submit', attrs: { form: 'person-form', 'data-action': 'save-person' } })));
   form.id = 'person-form';
@@ -532,13 +813,14 @@ export async function renderPerson(view, { id }, query) {
       btn.tabIndex = active ? 0 : -1;
     }
     for (const panel of [...form.querySelectorAll('.tab-panel'), historyPanel]) panel.hidden = panel.getAttribute('data-tab') !== next;
-    saveBar.hidden = next === 'historico';
+    // No histórico só se edita a lista de encontros anteriores: o botão aparece quando há o que salvar.
+    saveBar.hidden = next === 'historico' && !changed;
     history.replaceState(null, '', `#/pessoas/${isNew ? 'nova' : person.id}${next === 'dados' ? '' : `?aba=${next}`}`);
   }
 
   /** Valores marcados (ou os da ficha, antes da aba ser desenhada). */
   function currentList(name) {
-    return form?.querySelector(`input[name="${name}"]`) ? checkedValues(form, name) : person[name];
+    return form?.querySelector(`input[name="${name}"]`) ? checkedValues(form, name) : (person[name] ?? []);
   }
 
   async function addOption(store, options, listName) {
@@ -548,6 +830,7 @@ export async function renderPerson(view, { id }, query) {
     Object.assign(catalog, await loadCatalog());
     if (listName === 'skillIds') paintSkills(selected);
     else if (listName === 'characteristicIds') paintProfile(selected);
+    else if (listName === 'pastoralIds') paintPastorals(selected);
     else paintAvailability(selected);
     form.dispatchEvent(new Event('change'));
     toast(`"${created.name}" criada e marcada na ficha.`);
@@ -558,6 +841,7 @@ export async function renderPerson(view, { id }, query) {
     const input = {
       ...person,
       name: values.name,
+      birthDate: values.birthDate ?? '',
       phone: values.phone,
       email: values.email,
       instagram: values.instagram,
@@ -566,15 +850,18 @@ export async function renderPerson(view, { id }, query) {
       availabilityStatus: values.availabilityStatus ?? '',
       skillIds: checkedValues(form, 'skillIds'),
       characteristicIds: checkedValues(form, 'characteristicIds'),
+      pastoralIds: checkedValues(form, 'pastoralIds'),
       availabilityIds: checkedValues(form, 'availabilityIds'),
       preferredTeamIds: checkedValues(form, 'preferredTeamIds'),
       avoidTeamIds: checkedValues(form, 'avoidTeamIds'),
+      pastServices: pastDraft,
     };
     const errors = validatePerson({ ...input, instagram: normalizeInstagram(input.instagram), email: clean(input.email) });
     const firstField = Object.keys(errors)[0];
     if (firstField) {
       showTab(FIELD_TAB[firstField] ?? 'dados');
       showErrors(form, errors);
+      if (errors.pastServices) toastError(new AppError('invalid', errors.pastServices));
       return;
     }
     showErrors(form, {});
@@ -614,7 +901,7 @@ export async function renderPerson(view, { id }, query) {
         back: { href: '/pessoas', label: 'Pessoas' },
         eyebrow: isNew ? 'Nova ficha' : person.status === 'arquivado' ? 'Ficha arquivada' : stats.events.size ? `${plural(stats.events.size, 'encontro servido', 'encontros servidos')}` : 'Ficha',
         title: isNew ? 'Nova pessoa' : person.name,
-        lead: !isNew && person.createdAt ? `Cadastrada em ${fmtDate(person.createdAt)}` : null,
+        lead: isNew ? null : [ageText(person.birthDate), person.createdAt && `Cadastrada em ${fmtDate(person.createdAt)}`].filter(Boolean).join(' · ') || null,
         actions,
       }),
       person.status === 'arquivado' ? h('div', { class: 'notice notice--info' }, icon('info', { size: 18 }), h('p', { class: 'notice__text' }, 'Ficha arquivada: não aparece nas listas nem nas sugestões de distribuição. O histórico continua intacto.')) : null,
@@ -625,15 +912,17 @@ export async function renderPerson(view, { id }, query) {
     ),
   );
   paintPhoto();
+  paintPastorals();
   paintSkills();
   paintProfile();
   paintAvailability();
+  paintHistory();
   showTab(tab);
   trackDirty(form);
 }
 
-function tile(label, value) {
-  return h('div', { class: 'tile' }, h('span', { class: 'tile__value' }, String(value)), h('span', { class: 'tile__label' }, label));
+function tile(label, value, note) {
+  return h('div', { class: 'tile' }, h('span', { class: 'tile__value' }, String(value)), h('span', { class: 'tile__label' }, label), note && h('span', { class: 'tile__note' }, note));
 }
 
 async function archiveFlow(person) {

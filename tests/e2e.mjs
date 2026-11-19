@@ -114,7 +114,7 @@ try {
     const counts = await app(`return { categories: (await all('categories')).length, skills: (await all('skills')).length, profile: (await all('characteristics')).length, version: (await db.getOne('metadata', 'dataVersion')).value };`);
     eq(counts.categories, 7, 'categorias iniciais');
     assert(counts.skills >= 35, 'habilidades iniciais');
-    eq(counts.version, 1, 'versão dos dados');
+    eq(counts.version, 2, 'versão dos dados');
     await b.shot('d01-primeiro-uso');
   });
 
@@ -443,6 +443,125 @@ try {
   await step('Verificação de integridade do banco', async () => {
     const r = await app(`return db.checkIntegrity();`);
     eq(r.issues, [], 'sem problemas');
+  });
+
+  // ---------------------------------------------------------------- Pedidos 1.1: idade, pastorais, encontros anteriores, cartão, planilha
+  await step('Ficha: idade, pastorais e encontros anteriores informados à mão (contam na experiência)', async () => {
+    const statsOf = `const s = hist.buildStats(await all('participationHistory'), await all('people')).get(${JSON.stringify(ids.maria)}); return { events: s.events.size, manual: s.manualEvents.size, participations: s.participations, coordinations: s.coordinations, musica: s.byTeam.get(${JSON.stringify(ids.musica)})?.count ?? 0 };`;
+    const before = await app(statsOf);
+    await go(`#/pessoas/${ids.maria}`, '[name=birthDate]');
+    await setValue('[name=birthDate]', '2099-01-01');
+    await b.click('[data-action="save-person"]');
+    await b.waitFor(`document.querySelector('[data-field="birthDate"].field--error')`, 'data de nascimento no futuro recusada');
+    await setValue('[name=birthDate]', '1991-03-12');
+    await b.waitFor(`/^\\d+ anos$/.test(document.querySelector('[data-field="birthDate"] .field__hint').textContent)`, 'idade calculada ao digitar');
+    await b.click('label.chip:has(input[value="pst-catequese"])');
+    await b.click('label.chip:has(input[value="pst-pastoral-da-juventude"])');
+    await b.click('#tab-historico');
+    const addPast = async ({ name, year = '', team = '', other = '', coord = false }) => {
+      await b.click('[data-action="add-past"]');
+      await b.waitFor(`document.querySelector('dialog[open] [name=eventName]')`, 'formulário do encontro anterior');
+      await setValue('dialog[open] [name=eventName]', name);
+      await setValue('dialog[open] [name=year]', year);
+      await setValue('dialog[open] [name=team]', team);
+      if (other) await setValue('dialog[open] [name=teamName]', other);
+      if (coord) await b.click('dialog[open] .segmented__item:has(input[value="coordenador"])');
+      await b.click('dialog[open] [data-action="save-past"]');
+    };
+    await addPast({ name: 'EJC 2019', year: '2019', team: ids.musica, coord: true });
+    await b.waitFor(`document.querySelectorAll('.past-row').length === 1`, 'primeiro encontro anterior');
+    await addPast({ name: 'EJC 2019', year: '2019', team: '__outra', other: 'Teatro' });
+    await b.waitFor(`document.querySelectorAll('.past-row').length === 2`, 'mesmo encontro em outra equipe');
+    await addPast({ name: 'ejc  2019', year: '2019', team: ids.musica });
+    await b.waitFor(`document.querySelector('dialog[open] [data-field="eventName"].field--error')`, 'repetido recusado');
+    await b.click('dialog[open] .modal__x');
+    await addPast({ name: 'Encontro de Casais', year: '1800' });
+    await b.waitFor(`document.querySelector('dialog[open] [data-field="year"].field--error')`, 'ano inválido recusado');
+    await setValue('dialog[open] [name=year]', '');
+    await b.click('dialog[open] [data-action="save-past"]');
+    await b.waitFor(`document.querySelectorAll('.past-row').length === 3 && !document.querySelector('dialog[open]')`, 'encontro sem ano e sem equipe');
+    await b.waitFor(`document.querySelector('.timeline .is-manual')`, 'linha do tempo com os informados');
+    await b.click('[data-action="save-person"]');
+    await toastSeen('Ficha salva.');
+    const r = await app(`
+      const p = await db.getOne('people', ${JSON.stringify(ids.maria)});
+      return { birth: p.birthDate, pastorals: [...p.pastoralIds].sort(), past: p.pastServices.map((x) => [x.eventName, x.year, x.teamName, x.role]).sort() };`);
+    eq(r, { birth: '1991-03-12', pastorals: ['pst-catequese', 'pst-pastoral-da-juventude'], past: [['EJC 2019', 2019, 'Música e Louvor', 'coordenador'], ['EJC 2019', 2019, 'Teatro', 'integrante'], ['Encontro de Casais', null, '', 'integrante']] }, 'ficha gravada');
+    const after = await app(statsOf);
+    eq(after, { events: before.events + 2, manual: 2, participations: before.participations + 3, coordinations: before.coordinations + 1, musica: before.musica + 1 }, 'experiência soma os informados (mesmo encontro em 2 equipes = 1 encontro)');
+    await b.waitFor(`document.querySelector('#tab-historico .tabs__count')?.textContent === '${after.events}'`, 'contador da aba');
+    await b.shot('d07-encontros-anteriores');
+  });
+
+  await step('Clicar na pessoa abre o cartão; planilha .xlsx da lista (com filtro de pastoral)', async () => {
+    await go('#/pessoas', '.table');
+    const age = await app(`const v = await import('/js/validation.js'); return v.ageOf('1991-03-12');`);
+    await b.evaluate(`[...document.querySelectorAll('.cell-link')].find((a) => a.textContent === 'Maria José da Silva').click()`);
+    await b.waitFor(`document.querySelector('dialog[open] [data-role="person-card"]')`, 'cartão da pessoa');
+    const card = await b.evaluate(`(() => { const c = document.querySelector('dialog[open] .cracha'); return { name: c.querySelector('.cracha__name').textContent, age: c.querySelector('.cracha__age').textContent, phone: c.querySelector('.cracha__number').textContent, wa: c.querySelector('a[href^="https://wa.me/"]').getAttribute('href'), pastorals: [...c.querySelectorAll('.cracha__facts .tag')].map((t) => t.textContent), hash: location.hash }; })()`);
+    eq(card, { name: 'Maria José da Silva', age: `${age} anos`, phone: '(21) 91234-5678', wa: 'https://wa.me/5521912345678', pastorals: ['Catequese', 'Pastoral da Juventude'], hash: '#/pessoas' }, 'cartão');
+    await b.shot('d08-cartao');
+    await b.click('dialog[open] [data-action="open-person"]');
+    await b.waitFor(`location.hash === '#/pessoas/${ids.maria}' && document.querySelector('.page-title')?.textContent === 'Maria José da Silva'`, 'ficha completa pelo cartão');
+    await go('#/pessoas', '.table');
+    const ageCell = await b.evaluate(`[...document.querySelectorAll('.table tbody tr')].find((tr) => tr.textContent.includes('Maria José da Silva')).querySelector('td[data-label="Idade"]').textContent`);
+    eq(ageCell, String(age), 'coluna de idade');
+    await b.evaluate(`[...document.querySelectorAll('.table tbody tr')].find((tr) => tr.textContent.includes('Diego Pires')).querySelector('td[data-label="Situação"]').click()`);
+    await b.waitFor(`document.querySelector('dialog[open] .cracha__name')?.textContent === 'Diego Pires'`, 'cartão pelo clique na linha');
+    await b.click('dialog[open] .modal__x');
+    await b.evaluate(`(() => { const s = [...document.querySelectorAll('.select-box')].find((l) => l.textContent.startsWith('Pastoral')).querySelector('select'); s.value = 'pst-catequese'; s.dispatchEvent(new Event('change')); })()`);
+    await b.waitFor(`document.querySelector('.result-count')?.textContent.startsWith('1 pessoa encontrada')`, 'filtro por pastoral');
+    const before = await listDownloads();
+    await b.click('[data-action="export-people"]');
+    const file = await waitDownload('.xlsx', before);
+    await toastSeen('Só quem aparece com os filtros atuais');
+    const sheet = await b.evaluate(`(async () => {
+      const zip = await JSZip.loadAsync(${JSON.stringify((await readFile(file)).toString('base64'))}, { base64: true });
+      const parts = ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/worksheets/sheet1.xml'];
+      const docs = {};
+      for (const name of parts) docs[name] = new DOMParser().parseFromString(await zip.file(name).async('string'), 'application/xml');
+      const broken = parts.filter((name) => docs[name].querySelector('parsererror'));
+      const rows = [...docs['xl/worksheets/sheet1.xml'].getElementsByTagName('row')].map((row) => [...row.getElementsByTagName('c')].map((c) => c.textContent));
+      return { broken, rows };
+    })()`);
+    eq(sheet.broken, [], 'XML da planilha válido');
+    eq(sheet.rows.length, 2, 'cabeçalho + 1 pessoa filtrada');
+    eq(sheet.rows[0].slice(0, 4), ['Nome', 'Idade', 'Nascimento', 'Telefone'], 'cabeçalho');
+    eq(sheet.rows[1].slice(0, 4), ['Maria José da Silva', String(age), '12/03/1991', '(21) 91234-5678'], 'linha da Maria');
+    assert(sheet.rows[1].includes('Catequese, Pastoral da Juventude'), 'pastorais na planilha');
+    assert(sheet.rows[1].some((c) => c.includes('Teatro')), 'equipes dos encontros anteriores na planilha');
+    await copyFile(file, join(work, 'pessoas.xlsx'));
+    await b.clickText('Limpar filtros');
+  });
+
+  await step('Backup leva os campos novos; dados da versão 1.0 são atualizados sem perda', async () => {
+    const r = await app(`
+      const { blob } = await backup.buildBackup();
+      const parsed = await backup.readBackupFile(new File([blob], 'b.zip'));
+      const maria = parsed.stores.people.find((p) => p.id === ${JSON.stringify(ids.maria)});
+      // Outro aparelho instalado em outro momento: mesmas opções, datas diferentes = não é diferença.
+      for (const c of parsed.stores.characteristics) c.createdAt = c.updatedAt = '2020-01-01T00:00:00.000Z';
+      const plan = await backup.planMerge(parsed);
+      // Backup antigo (formato 1): ganha os campos novos e as pastorais.
+      const v1 = { people: [{ id: 'antiga', name: 'Ficha Antiga', skillIds: [], characteristicIds: [], preferredTeamIds: [], avoidTeamIds: [], availabilityIds: [], status: 'ativo' }], characteristics: [] };
+      schema.migrateData(v1, 1);
+      // Banco local da versão 1.0: some com as pastorais e os campos novos e reabre.
+      const diego = await db.getOne('people', ${JSON.stringify(ids.people['Diego Pires'])});
+      delete diego.birthDate; delete diego.pastoralIds; delete diego.pastServices;
+      await db.putOne('people', diego);
+      for (const c of (await all('characteristics')).filter((c) => c.group === 'pastoral')) await db.deleteOne('characteristics', c.id);
+      await db.putOne('metadata', { key: 'dataVersion', value: 1 });
+      await db.initDatabase();
+      const migrated = await db.getOne('people', ${JSON.stringify(ids.people['Diego Pires'])});
+      const mariaNow = await db.getOne('people', ${JSON.stringify(ids.maria)});
+      return {
+        backup: [maria.birthDate, maria.pastoralIds.length, maria.pastServices.length],
+        conflicts: plan.conflicts.length,
+        v1: [v1.people[0].birthDate, v1.people[0].pastoralIds, v1.people[0].pastServices, v1.characteristics.length, schema.DATA_VERSION],
+        local: [migrated.birthDate, migrated.pastoralIds, migrated.pastServices, (await all('characteristics')).filter((c) => c.group === 'pastoral').length, (await db.getOne('metadata', 'dataVersion')).value, mariaNow.pastServices.length, mariaNow.pastoralIds.length],
+        integrity: (await db.checkIntegrity()).issues,
+      };`);
+    eq(r, { backup: ['1991-03-12', 2, 3], conflicts: 0, v1: ['', [], [], 14, 2], local: ['', [], [], 14, 2, 3, 2], integrity: [] }, 'backup e migração');
   });
 
   // ---------------------------------------------------------------- Backup (arquivo)

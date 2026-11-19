@@ -2,7 +2,7 @@
 // Atualização controlada: a nova versão só assume quando o usuário toca em "Atualizar".
 // Ao publicar qualquer alteração, troque VERSION (os testes conferem se a lista está completa).
 
-const VERSION = 'encontro-1.0.0';
+const VERSION = 'encontro-1.1.0';
 
 const ASSETS = [
   './',

@@ -128,7 +128,7 @@ export async function loadEventContext(eventId) {
     peopleList: stores.people,
     teams: new Map(stores.teams.map((t) => [t.id, t])),
     teamList: stores.teams,
-    stats: buildStats(stores.participationHistory),
+    stats: buildStats(stores.participationHistory, stores.people),
     requirements: stores.teamRequirements,
     catalog,
     editable: EDITABLE_EVENT_STATUS.includes(event.status),

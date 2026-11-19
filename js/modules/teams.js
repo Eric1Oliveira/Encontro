@@ -12,7 +12,7 @@ import { openModal, confirmDialog } from '../components/modal.js';
 import { toast, toastError } from '../components/toast.js';
 import { navigate, refresh } from '../router.js';
 import { pickPeople } from './people.js';
-import { buildStats } from './history.js';
+import { buildStats, pastRecords } from './history.js';
 import { loadCatalog } from './skills.js';
 
 export const WEIGHTS = [
@@ -331,7 +331,7 @@ export async function renderTeam(view, { id }) {
   const people = new Map(stores.people.map((p) => [p.id, p]));
   const requirements = stores.teamRequirements.filter((r) => r.teamId === id);
   const history = stores.participationHistory.filter((r) => r.teamId === id);
-  const stats = buildStats(history);
+  const stats = buildStats([...history, ...pastRecords(stores.people).filter((r) => r.teamId === id)]);
   const run = async (work, message) => {
     try {
       await work();

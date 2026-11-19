@@ -40,7 +40,9 @@ function stable(value) {
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`;
   return JSON.stringify(value ?? null);
 }
-const same = (a, b) => stable(a) === stable(b);
+/** Mesmo conteúdo, ainda que criado em momentos diferentes (ex.: opções iniciais de dois aparelhos). */
+const content = ({ createdAt, updatedAt, ...rest }) => rest;
+const same = (a, b) => stable(content(a)) === stable(content(b));
 
 // ---------- Exportação ----------
 
@@ -277,7 +279,7 @@ export async function planMerge(parsed) {
   for (const r of inc.skills) Object.assign(r, { id: m('skills', r.id), categoryId: m('categories', r.categoryId) });
   for (const r of inc.characteristics) r.id = m('characteristics', r.id);
   for (const r of inc.teams) Object.assign(r, { id: m('teams', r.id), coordinators: r.coordinators.map((c) => ({ ...c, personId: m('people', c.personId) })), referenceMemberIds: r.referenceMemberIds.map((id) => m('people', id)) });
-  for (const r of inc.people) Object.assign(r, { id: m('people', r.id), skillIds: r.skillIds.map((id) => m('skills', id)), characteristicIds: r.characteristicIds.map((id) => m('characteristics', id)), availabilityIds: r.availabilityIds.map((id) => m('characteristics', id)), preferredTeamIds: r.preferredTeamIds.map((id) => m('teams', id)), avoidTeamIds: r.avoidTeamIds.map((id) => m('teams', id)) });
+  for (const r of inc.people) Object.assign(r, { id: m('people', r.id), skillIds: r.skillIds.map((id) => m('skills', id)), characteristicIds: r.characteristicIds.map((id) => m('characteristics', id)), availabilityIds: r.availabilityIds.map((id) => m('characteristics', id)), pastoralIds: (r.pastoralIds ?? []).map((id) => m('characteristics', id)), preferredTeamIds: r.preferredTeamIds.map((id) => m('teams', id)), avoidTeamIds: r.avoidTeamIds.map((id) => m('teams', id)), pastServices: (r.pastServices ?? []).map((s) => ({ ...s, teamId: s.teamId ? m('teams', s.teamId) : null })) });
   for (const r of inc.teamRequirements) Object.assign(r, { teamId: m('teams', r.teamId), refId: m(r.kind === 'skill' ? 'skills' : 'characteristics', r.refId) });
   for (const r of inc.events) r.id = m('events', r.id);
   for (const r of inc.eventTeams) Object.assign(r, { eventId: m('events', r.eventId), teamId: m('teams', r.teamId) });

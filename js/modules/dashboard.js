@@ -31,7 +31,7 @@ function barList(rows, { empty }) {
 export async function renderDashboard(view) {
   const [stores, catalog] = await Promise.all([readStores(['people', 'teams', 'events', 'eventTeams', 'allocations', 'participationHistory']), loadCatalog()]);
   const { people, teams, events, eventTeams, allocations, participationHistory } = stores;
-  const stats = buildStats(participationHistory);
+  const stats = buildStats(participationHistory, people);
   const active = people.filter((p) => p.status === 'ativo');
   const realized = events.filter((e) => ['concluido', 'reaberto'].includes(e.status));
   const open = events.filter((e) => ['planejamento', 'em_andamento'].includes(e.status)).sort((a, b) => a.startDate.localeCompare(b.startDate));

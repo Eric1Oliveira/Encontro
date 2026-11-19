@@ -42,10 +42,46 @@ export function normalizeInstagram(value) {
   return v ? `@${v}` : '';
 }
 
+/** Idade completa na data de referência (null sem data válida). */
+export function ageOf(birthDate, now = new Date()) {
+  if (!isDate(birthDate)) return null;
+  const [y, m, d] = birthDate.split('-').map(Number);
+  const month = now.getMonth() + 1;
+  return now.getFullYear() - y - (month < m || (month === m && now.getDate() < d) ? 1 : 0);
+}
+
+export const ROLE_IDS = ['coordenador', 'integrante'];
+export const pastServiceKey = (s) => `${normalize(s.eventName)}|${s.year ?? ''}|${s.teamId || normalize(s.teamName)}`;
+
+/**
+ * Encontro anterior informado à mão (antes do sistema ou não cadastrado).
+ * @param {{ id?: string, eventName: string, year: number|null, teamId: string|null, teamName: string, role: string }} s
+ * @param {any[]} siblings demais encontros anteriores da mesma ficha
+ */
+export function validatePastService(s, siblings = []) {
+  const errors = {};
+  const name = clean(s.eventName);
+  const thisYear = new Date().getFullYear();
+  if (name.length < 2) errors.eventName = 'Informe o encontro, por exemplo "EJC 2019" ou "Encontro de Casais".';
+  else if (name.length > 80) errors.eventName = 'Use no máximo 80 caracteres.';
+  if (s.year != null && (!Number.isInteger(s.year) || s.year < 1950 || s.year > thisYear)) errors.year = `Use um ano entre 1950 e ${thisYear}.`;
+  if (!s.teamId && s.teamName != null && s.teamName !== '' && clean(s.teamName).length < 2) errors.teamName = 'Escreva o nome da equipe.';
+  if (!ROLE_IDS.includes(s.role)) errors.role = 'Escolha a função.';
+  if (!errors.eventName && siblings.some((o) => o.id !== s.id && pastServiceKey(o) === pastServiceKey(s))) errors.eventName = 'Este encontro, com esta equipe, já está na lista.';
+  return errors;
+}
+
 /** @returns {Record<string,string>} campo → mensagem (vazio = válido) */
 export function validatePerson(p) {
   const errors = {};
   if (clean(p.name).length < 2) errors.name = 'Informe o nome completo.';
+  if (p.birthDate) {
+    const age = ageOf(p.birthDate);
+    if (age == null) errors.birthDate = 'Confira a data de nascimento.';
+    else if (age < 0) errors.birthDate = 'A data de nascimento não pode estar no futuro.';
+    else if (age > 120) errors.birthDate = 'Confira o ano de nascimento.';
+  }
+  if ((p.pastServices ?? []).some((s, i, all) => Object.keys(validatePastService(s, all.slice(0, i))).length)) errors.pastServices = 'Há um encontro anterior com dados incompletos ou repetido.';
   if (p.phone && !isPhone(p.phone)) errors.phone = 'Use DDD + número, por exemplo (11) 98765-4321.';
   if (p.email && !isEmail(p.email)) errors.email = 'Confira o e-mail, por exemplo nome@exemplo.com.';
   if (p.instagram && !/^@[A-Za-z0-9._]{1,30}$/.test(p.instagram)) errors.instagram = 'Use só letras, números, ponto e sublinhado.';
@@ -87,14 +123,17 @@ const str = (v) => typeof v === 'string';
 const optStr = (v) => v == null || typeof v === 'string';
 const arr = (v) => Array.isArray(v) && v.every(str);
 const num = (v) => v == null || (typeof v === 'number' && Number.isFinite(v));
+const pastOk = (s) => s && typeof s === 'object' && str(s.id) && str(s.eventName) && s.eventName.trim() && ROLE_IDS.includes(s.role) && (s.year == null || Number.isInteger(s.year)) && optStr(s.teamId) && optStr(s.teamName);
 
 /** Regras mínimas por loja: o que precisa existir para o registro ser utilizável. */
 const RECORD_RULES = {
-  people: (r) => str(r.name) && r.name.trim() && arr(r.skillIds) && arr(r.characteristicIds) && arr(r.preferredTeamIds) && arr(r.avoidTeamIds) && arr(r.availabilityIds) && optStr(r.photoId) && ['ativo', 'arquivado'].includes(r.status),
+  people: (r) =>
+    str(r.name) && r.name.trim() && arr(r.skillIds) && arr(r.characteristicIds) && arr(r.preferredTeamIds) && arr(r.avoidTeamIds) && arr(r.availabilityIds) && optStr(r.photoId) && ['ativo', 'arquivado'].includes(r.status) &&
+    (r.pastoralIds == null || arr(r.pastoralIds)) && (!r.birthDate || isDate(r.birthDate)) && (r.pastServices == null || (Array.isArray(r.pastServices) && r.pastServices.every(pastOk))),
   photos: (r) => str(r.personId) && str(r.type),
   categories: (r) => str(r.name) && str(r.area) && typeof r.active === 'boolean',
   skills: (r) => str(r.name) && str(r.categoryId) && typeof r.active === 'boolean',
-  characteristics: (r) => str(r.name) && ['perfil', 'disponibilidade'].includes(r.group) && typeof r.active === 'boolean',
+  characteristics: (r) => str(r.name) && ['perfil', 'disponibilidade', 'pastoral'].includes(r.group) && typeof r.active === 'boolean',
   teams: (r) => str(r.name) && isColor(r.color) && Array.isArray(r.coordinators) && arr(r.referenceMemberIds) && num(r.targetSize),
   teamRequirements: (r) => str(r.teamId) && ['skill', 'characteristic'].includes(r.kind) && str(r.refId) && [1, 2, 3].includes(r.weight),
   events: (r) => str(r.name) && isDate(r.startDate) && isDate(r.endDate) && ['planejamento', 'em_andamento', 'concluido', 'reaberto', 'cancelado'].includes(r.status),

@@ -218,6 +218,11 @@
     display: none;
   }
 
+  /* No cartão de cada linha, campo vazio (sem idade, sem pastoral) não ocupa espaço. */
+  .table td:has(> .cell-empty) {
+    display: none;
+  }
+
   .table td .tags {
     justify-content: flex-end;
   }
