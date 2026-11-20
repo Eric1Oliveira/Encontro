@@ -1,7 +1,7 @@
 // Estrutura do banco local (IndexedDB), versões, rótulos fixos e valores iniciais.
 import { normalize } from './validation.js';
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.1.2';
 export const DB_NAME = 'gestao-encontros';
 /** Versão estrutural do IndexedDB (lojas e índices). */
 export const DB_VERSION = 1;

@@ -173,7 +173,7 @@ try {
       return { ...p, photoType: photo.blob.type, photoSize: photo.blob.size, w: bmp.width, h: bmp.height };`);
     eq([p.phone, p.email, p.instagram, p.availabilityStatus], ['(11) 98765-4321', 'maria@exemplo.com', '@maria.jose', 'disponivel'], 'dados normalizados');
     eq([p.skillIds.sort(), p.characteristicIds, p.preferredTeamIds, p.availabilityIds], [['skl-violao', 'skl-voz-principal'], ['chr-comunicativo'], [ids.musica], ['avl-sabado']], 'classificações');
-    assert(p.photoType === 'image/jpeg' && p.photoSize > 1000 && p.w <= 640 && p.h <= 640, `foto reduzida e guardada (${p.photoType}, ${p.photoSize} B, ${p.w}x${p.h})`);
+    assert(p.photoType === 'image/jpeg' && p.photoSize > 1000 && p.w <= 960 && p.h <= 960, `foto reduzida e guardada (${p.photoType}, ${p.photoSize} B, ${p.w}x${p.h})`);
     ids.maria = p.id;
   });
 
@@ -314,6 +314,17 @@ try {
     await go(`#/encontros/${ids.ev1}`, '.q-col');
     await b.waitFor(`document.querySelector('.q-toolbar__warn')?.textContent.includes('1 pessoa está em mais de uma equipe')`, 'aviso de duas equipes');
     await b.shot('d06-quadrante');
+    // Impresso: uma folha por equipe, com as mesmas pessoas da tela, coordenação à parte e o aviso de duas equipes.
+    const sheets = await b.evaluate(`({ cols: document.querySelectorAll('.q-grid .q-col').length, members: document.querySelectorAll('.q-grid .q-member').length, sheets: [...document.querySelectorAll('.q-print .q-sheet')].map((s) => ({ coord: [...s.querySelectorAll('.q-sheet__coord tbody tr')].map((tr) => tr.children[1].textContent), rows: s.querySelectorAll('tbody tr').length, text: s.textContent })) })`);
+    eq(
+      { folhas: sheets.sheets.length, linhas: sheets.sheets.reduce((n, s) => n + s.rows, 0), bruno: sheets.sheets.some((s) => s.coord.includes('Bruno Teixeira')), joao: sheets.sheets.some((s) => s.text.includes('João Pedro Alvestambém em Música')) },
+      { folhas: sheets.cols, linhas: sheets.members, bruno: true, joao: true },
+      'quadrante impresso',
+    );
+    if (shotsDir) {
+      const { data } = await b.page('Page.printToPDF', { preferCSSPageSize: true, printBackground: true });
+      await writeFile(join(shotsDir, 'd06-quadrante-impresso.pdf'), Buffer.from(data, 'base64'));
+    }
   });
 
   await step('Conclui pela tela marcando uma ausência; histórico conta certo', async () => {
@@ -777,6 +788,16 @@ try {
         const overflow = await b.evaluate(`document.documentElement.scrollWidth - window.innerWidth`);
         assert(overflow <= 1, `${label} ${hash}: rolagem lateral de ${overflow}px`);
         if (label === 'celular' && ['#/', `#/encontros/${ids.ev1}`, '#/pessoas', `#/pessoas/${ids.maria}?aba=historico`].includes(hash)) await b.shot(`m-${hash.replace(/[#/?=]+/g, '-').replace(/^-|-$/g, '') || 'inicio'}`);
+      }
+      if (label === 'celular') {
+        await go('#/pessoas');
+        await b.evaluate(`[...document.querySelectorAll('.cell-link, .person-card')].find((a) => a.textContent.includes('Maria José da Silva')).click()`);
+        await b.waitFor(`document.querySelector('dialog[open] .cracha__photo img')`, 'cartão com foto no celular');
+        const fit = await b.evaluate(`(() => { const r = document.querySelector('dialog[open] .cracha__photo').getBoundingClientRect(); return r.width > 300 && r.height > r.width; })()`);
+        assert(fit, 'foto do cartão grande e em pé no celular');
+        await sleep(400);
+        await b.shot('m-cartao');
+        await b.click('dialog[open] .modal__x');
       }
       if (mobile && w < 900) assert(await b.evaluate(`getComputedStyle(document.getElementById('tabbar')).display === 'grid' && getComputedStyle(document.getElementById('sidebar')).display === 'none'`), 'barra inferior no celular');
     }

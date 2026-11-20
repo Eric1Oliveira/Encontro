@@ -8,7 +8,7 @@ import { field, readForm, showErrors } from '../components/forms.js';
 import { openModal, confirmDialog } from '../components/modal.js';
 import { toast, toastError } from '../components/toast.js';
 import { refresh } from '../router.js';
-import { pickPeople } from './people.js';
+import { pickPeople, ageText } from './people.js';
 import { buildStats } from './history.js';
 import { rankCandidates } from './assistant.js';
 import { loadCatalog, optionNames } from './skills.js';
@@ -191,10 +191,50 @@ export function renderBoard(ctx) {
     );
   };
 
+  // Impressão: uma folha por equipe para entregar à coordenação (nome, idade e telefone de cada um).
+  const eventLine = [event.name, fmtRange(event.startDate, event.endDate), event.location].filter(Boolean).join(' · ');
+  const sheetTable = (list, team) =>
+    h(
+      'table',
+      { class: 'q-sheet__table' },
+      h('thead', null, h('tr', null, h('th', { class: 'q-sheet__n' }, 'Nº'), h('th', null, 'Nome'), h('th', { class: 'q-sheet__age' }, 'Idade'), h('th', { class: 'q-sheet__phone' }, 'Telefone'))),
+      h(
+        'tbody',
+        null,
+        list.map((a, i) => {
+          const person = people.get(a.personId);
+          const others = (multi.get(a.personId) ?? []).filter((name) => name !== team.name);
+          return h(
+            'tr',
+            null,
+            h('td', { class: 'q-sheet__n' }, String(i + 1)),
+            h('td', null, h('strong', null, person?.name ?? 'Ficha removida'), others.length ? h('small', null, `também em ${others.join(', ')}`) : null),
+            h('td', { class: 'q-sheet__age' }, ageText(person?.birthDate) || '—'),
+            h('td', { class: 'q-sheet__phone' }, person?.phone || '—'),
+          );
+        }),
+      ),
+    );
+  const sheet = (team) => {
+    const members = allocations.filter((a) => a.teamId === team.teamId).sort(byRoleThenName(people));
+    const coords = members.filter((a) => a.role === 'coordenador');
+    const others = members.filter((a) => a.role !== 'coordenador');
+    return h(
+      'section',
+      { class: 'q-sheet', style: { '--team': team.color } },
+      h('p', { class: 'q-sheet__event' }, 'Quadrante · ', eventLine),
+      h('header', { class: 'q-sheet__head' }, h('span', { class: 'q-sheet__icon' }, icon(team.icon, { size: 22 })), h('h2', { class: 'q-sheet__team' }, team.name), h('span', { class: 'q-sheet__count' }, plural(members.length, 'pessoa', 'pessoas'))),
+      h('h3', { class: 'q-sheet__label' }, 'Coordenação'),
+      coords.length ? h('div', { class: 'q-sheet__coord' }, sheetTable(coords, team)) : h('p', { class: 'q-sheet__empty' }, 'Sem coordenação'),
+      h('h3', { class: 'q-sheet__label' }, 'Integrantes'),
+      others.length ? sheetTable(others, team) : h('p', { class: 'q-sheet__empty' }, 'Ninguém ainda'),
+    );
+  };
+
   return h(
     'div',
     { class: 'quadrante' },
-    h('div', { class: 'print-head' }, h('p', { class: 'print-head__eyebrow' }, 'Quadrante'), h('h2', { class: 'print-head__title' }, event.name), h('p', null, [fmtRange(event.startDate, event.endDate), event.location].filter(Boolean).join(' · '))),
+    eventTeams.length ? h('div', { class: 'q-print' }, eventTeams.map(sheet)) : null,
     h(
       'div',
       { class: 'q-toolbar' },

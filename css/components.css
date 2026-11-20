@@ -569,14 +569,15 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold-mark) 35%, transparent);
 }
 
+/* Fotos sempre retangulares em pé (como foto de documento), só com cantos arredondados — pedido do cliente. */
 .avatar {
   --avatar-size: 36px;
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: var(--avatar-size);
+  width: calc(var(--avatar-size) * 0.8);
   height: var(--avatar-size);
-  border-radius: 50%;
+  border-radius: max(4px, calc(var(--avatar-size) * 0.14));
   overflow: hidden;
   background: hsl(var(--avatar-hue, 150) 30% 88%);
   color: hsl(var(--avatar-hue, 150) 35% 26%);
@@ -1256,10 +1257,16 @@ th[aria-sort='descending'] .th-sort__icon {
   display: grid;
   place-items: center;
   width: 112px;
-  height: 112px;
-  border-radius: 50%;
+  height: 140px;
+  border-radius: 14px;
   overflow: hidden;
   background: var(--surface-2);
+}
+
+.photo-field__preview .avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
 }
 
 .photo-field__preview img {
@@ -1323,14 +1330,17 @@ th[aria-sort='descending'] .th-sort__icon {
   white-space: nowrap;
 }
 
+/* O X fica sobre a foto: disco escuro para aparecer em qualquer imagem. */
 .modal--cracha .modal__x {
   margin: 0;
-  color: var(--primary-ink);
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.42);
+  color: #fff;
 }
 
 .modal--cracha .modal__x:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.16);
-  color: var(--primary-ink);
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
 }
 
 .modal--cracha .modal__body {
@@ -1354,11 +1364,25 @@ th[aria-sort='descending'] .th-sort__icon {
   padding-bottom: 8px;
 }
 
-.cracha__band {
+/* Foto retangular de ponta a ponta, como a do crachá; nome e idade escritos sobre ela. */
+.cracha__photo {
   position: relative;
   justify-self: stretch;
-  height: 84px;
-  background: var(--primary);
+  /* 4:5 pela largura do cartão, sem passar de pouco mais da metade da tela */
+  height: min(500px, 56dvh, calc((100vw - 24px) * 1.25));
+  background: var(--surface-2);
+}
+
+.cracha__photo .avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  font-family: var(--font-display);
+  font-size: 5rem;
+}
+
+.cracha__photo .avatar img {
+  object-position: center 30%;
 }
 
 .cracha__slot {
@@ -1377,32 +1401,29 @@ th[aria-sort='descending'] .th-sort__icon {
   outline: none;
 }
 
-.cracha__photo {
-  position: relative;
-  z-index: 1;
-  margin-top: -60px;
-  padding: 5px;
-  border-radius: 50%;
-  background: var(--surface);
-}
-
-.cracha__photo .avatar {
-  --avatar-size: 116px;
+.cracha__id {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 64px 20px 16px;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0.45) 55%, transparent);
+  color: #fff;
+  text-align: left;
 }
 
 .cracha__name {
-  margin: 10px 20px 0;
   font-family: var(--font-display);
-  font-size: 1.6rem;
-  font-weight: 650;
-  line-height: 1.15;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.08;
   text-wrap: balance;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
 }
 
 .cracha__age {
   margin-top: 4px;
-  color: var(--ink-3);
-  font-size: 0.95rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  opacity: 0.92;
 }
 
 .cracha__phone {
@@ -2171,7 +2192,8 @@ th[aria-sort='descending'] .th-sort__icon {
   gap: 14px;
 }
 
-.print-head {
+.print-head,
+.q-print {
   display: none;
 }
 

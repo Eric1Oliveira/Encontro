@@ -123,7 +123,7 @@ export async function deletePerson(id) {
   });
 }
 
-/** Reduz a foto para no máximo 640 px (JPEG) antes de guardar: economiza espaço e deixa o backup leve. */
+/** Reduz a foto para no máximo 960 px (JPEG) antes de guardar: nítida no cartão do celular e leve no backup. */
 export async function preparePhoto(file) {
   if (!file.type.startsWith('image/')) throw new AppError('invalid', 'Escolha um arquivo de imagem (JPG, PNG, WebP ou HEIC).');
   if (file.size > 25 * 1024 * 1024) throw new AppError('invalid', 'Imagem muito grande. Use uma foto de até 25 MB.');
@@ -139,7 +139,7 @@ export async function preparePhoto(file) {
       img.src = url;
     });
   }
-  const scale = Math.min(1, 640 / Math.max(source.width, source.height));
+  const scale = Math.min(1, 960 / Math.max(source.width, source.height));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(source.width * scale));
   canvas.height = Math.max(1, Math.round(source.height * scale));
@@ -195,10 +195,13 @@ export function openPersonCard(person, { stats, catalog }) {
   const body = h(
     'article',
     { class: 'cracha', dataset: { role: 'person-card' } },
-    h('div', { class: 'cracha__band' }, h('span', { class: 'cracha__slot', 'aria-hidden': 'true' })),
-    h('div', { class: 'cracha__photo' }, avatar(person, 'xl')),
-    h('p', { class: 'cracha__name' }, person.name),
-    h('p', { class: 'cracha__age' }, age || 'Idade não informada', person.status === 'arquivado' ? ' · ficha arquivada' : ''),
+    h(
+      'div',
+      { class: 'cracha__photo' },
+      avatar(person, 'xl'),
+      h('span', { class: 'cracha__slot', 'aria-hidden': 'true' }),
+      h('div', { class: 'cracha__id' }, h('p', { class: 'cracha__name' }, person.name), h('p', { class: 'cracha__age' }, age || 'Idade não informada', person.status === 'arquivado' ? ' · ficha arquivada' : '')),
+    ),
     person.phone
       ? h(
           'div',
